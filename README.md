@@ -2,7 +2,19 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://golang.org/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.35+-326CE5?logo=kubernetes)](https://kubernetes.io/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.35+-326CE5?logo=k## 💡 Credits & Inspiration
+
+KubeNexus draws inspiration from:
+
+- **[Palantir k8s-spark-scheduler](https://github.com/palantir/k8s-spark-scheduler)** - Resource reservation concepts and Spark scheduling patterns were adapted from Palantir's pioneering work. We've internalized these concepts (no external dependencies) and evolved them into a modern plugin-based architecture using the Kubernetes Scheduler Framework v1.35.
+
+- **[Kubernetes Scheduler Plugins](https://github.com/kubernetes-sigs/scheduler-plugins)** - Reference implementations for the scheduling framework
+
+- **[Apache YuniKorn](https://yunikorn.apache.org/)** - Advanced queue management concepts
+
+- **[Volcano](https://volcano.sh/)** - Job lifecycle management patterns
+
+**Note on Dependencies**: KubeNexus has **zero external scheduling dependencies**. All types and logic previously from Palantir's libraries have been internalized into `pkg/apis/scheduling/v1alpha1/` and `pkg/resourcereservation/`, ensuring a self-contained, maintainable codebase.(https://kubernetes.io/)
 
 > A lightweight, production-ready Kubernetes scheduler with gang scheduling for distributed workloads (Spark, ML, HPC)
 
@@ -55,27 +67,34 @@ That's it! Your Spark job will now be scheduled all-or-nothing.
 
 ## 🏗️ Architecture
 
-Built on the **Kubernetes Scheduler Framework**, KubeNexus implements a single core plugin for gang scheduling:
+Built on the **Kubernetes Scheduler Framework**, KubeNexus implements gang scheduling with optional resource reservation:
 
 ```
-┌─────────────────────────────────────────┐
-│      KubeNexus Scheduler (50MB)         │
-├─────────────────────────────────────────┤
-│  Coscheduling Plugin (Gang Scheduling)  │
-│  • QueueSort: Priority-based ordering   │
-│  • PreFilter: Group validation          │
-│  • Permit: Wait for all members         │
-│  • Reserve: Resource coordination       │
-├─────────────────────────────────────────┤
-│   Kubernetes Scheduler Framework        │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│      KubeNexus Scheduler (~50MB)                │
+├─────────────────────────────────────────────────┤
+│  Coscheduling Plugin (Gang Scheduling) - CORE   │
+│  • QueueSort: Priority-based ordering           │
+│  • PreFilter: Group validation                  │
+│  • Permit: Wait for all members                 │
+│  • Reserve: Resource coordination               │
+│  • Starvation Prevention: Age-based priority    │
+├─────────────────────────────────────────────────┤
+│  ResourceReservation Plugin - OPTIONAL          │
+│  • Reserve: Create ResourceReservation CRD      │
+│  • Unreserve: Clean up on scheduling failure    │
+│  • Prevents resource contention for long jobs   │
+├─────────────────────────────────────────────────┤
+│   Kubernetes Scheduler Framework (v1.35)        │
+└─────────────────────────────────────────────────┘
 ```
 
 **Key Design Principles**:
 - **Plugin-based**: Extends native Kubernetes scheduler
-- **No CRDs**: Uses standard annotations
+- **Minimal CRDs**: Only ResourceReservation (optional)
 - **Stateless**: No external dependencies
 - **HA-ready**: Built-in leader election
+- **Self-contained**: All types internalized (no external libs)
 
 ---
 
@@ -191,6 +210,32 @@ profiles:
 
 ---
 
+### Optional: Enable Resource Reservation
+
+Resource Reservation creates CRD objects to track reserved resources, preventing starvation in multi-tenant clusters:
+
+```bash
+# 1. Apply the ResourceReservation CRD
+kubectl apply -f config/crd-resourcereservation.yaml
+
+# 2. The scheduler is already configured to use it (see config/config.yaml)
+```
+
+**When to use**:
+- Multi-tenant clusters with many concurrent workloads
+- Long-running Spark/ML jobs that need guaranteed resources
+- Preventing smaller jobs from starving larger jobs
+
+**How it works**:
+1. When a pod group starts scheduling, a `ResourceReservation` CRD is created
+2. This tracks which nodes/resources are "spoken for" by pending pod groups
+3. Other workloads can see these reservations and avoid contention
+4. On success, the CRD is updated; on failure, it's cleaned up
+
+**Note**: This is entirely optional. Gang scheduling works fine without it. Enable only if you need explicit resource tracking.
+
+---
+
 ## 📊 Monitoring
 
 ### Prometheus Metrics
@@ -222,15 +267,23 @@ Metrics available at `:10259/metrics`
 ```
 kubenexus-scheduler/
 ├── cmd/
-│   └── main.go                  # Scheduler entrypoint
+│   └── main.go                         # Scheduler entrypoint
 ├── pkg/
-│   ├── coscheduling/           # Gang scheduling plugin
+│   ├── coscheduling/                  # Gang scheduling plugin (CORE)
 │   │   └── coscheduling.go
-│   └── utils/                   # Helper utilities
+│   ├── resourcereservation/           # Resource reservation plugin (OPTIONAL)
+│   │   └── resourcereservation.go
+│   ├── apis/scheduling/v1alpha1/      # Local CRD types (internalized)
+│   │   ├── types.go                   # ResourceReservation CRD definition
+│   │   ├── register.go                # Scheme registration
+│   │   └── zz_generated.deepcopy.go   # DeepCopy methods
+│   └── utils/                          # Helper utilities
 ├── config/
-│   └── gang-scheduler-deployment.yaml
-├── README.md                    # This file
-├── claude.md                    # Technical reference for AI
+│   ├── gang-scheduler-deployment.yaml  # Main deployment
+│   ├── config.yaml                     # Scheduler configuration
+│   └── crd-resourcereservation.yaml    # CRD definition (optional)
+├── README.md                           # This file
+├── claude.md                           # Technical reference for AI
 └── CONTRIBUTING.md
 ```
 
@@ -278,16 +331,19 @@ KubeNexus draws inspiration from:
 
 ## 🗺️ Roadmap
 
-### ✅ v1.0 (Current)
-- Gang scheduling (co-scheduling)
-- High availability
-- Prometheus metrics
-- Go 1.25, Kubernetes 1.35.1
+### ✅ v1.0 (Current - February 2026)
+- ✅ Gang scheduling (co-scheduling) with starvation prevention
+- ✅ Resource reservation (internalized, no external deps)
+- ✅ High availability
+- ✅ Prometheus metrics
+- ✅ Go 1.25, Kubernetes 1.35.1
+- ✅ Self-contained codebase (all types internalized)
 
 ### 🚧 v1.1 (Q2 2026)
 - Queue management (basic FIFO with priorities)
 - Topology awareness (zone spreading)
 - Enhanced metrics and dashboards
+- Unit/integration tests
 
 ### 📋 v2.0 (Q3-Q4 2026)
 - GPU scheduling

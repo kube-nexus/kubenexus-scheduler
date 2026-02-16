@@ -46,6 +46,11 @@ profiles:
         - name: Coscheduling
       disabled:
         - name: "*"
+    reserve:
+      enabled:
+        - name: Coscheduling
+        - name: ResourceReservation  # Optional: enables resource reservation for workloads
     unReserve:
       enabled:
         - name: Coscheduling
+        - name: ResourceReservation
