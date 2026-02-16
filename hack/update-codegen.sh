@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2020 The Kubernetes Authors.
+# Copyright 2026 The KubeNexus Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,10 +18,18 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCIPRT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
-source "${SCIPRT_ROOT}/hack/lib/init.sh"
+SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
+cd "${SCRIPT_ROOT}"
 
-kube::golang::verify_go_version
+echo "Generating deepcopy methods..."
 
-go mod tidy
-go mod vendor
+# Install controller-gen if not present
+if ! command -v controller-gen &> /dev/null; then
+    echo "Installing controller-gen..."
+    go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+fi
+
+# Generate deepcopy methods
+controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
+
+echo "Code generation complete!"

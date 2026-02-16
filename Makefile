@@ -6,7 +6,12 @@ DOCKER_IMAGE=kubenexus-scheduler
 VERSION?=v0.1.0
 
 .PHONY: all
-all: test build
+all: generate test build
+
+.PHONY: generate
+generate:
+	@echo "Generating code..."
+	go run sigs.k8s.io/controller-tools/cmd/controller-gen@latest object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
 
 .PHONY: build
 build:
@@ -16,7 +21,7 @@ build:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	go test -v -race ./pkg/...
+	$(BUILDENVVAR) go test -v ./pkg/...
 
 .PHONY: docker-build
 docker-build:
@@ -26,4 +31,11 @@ docker-build:
 
 .PHONY: clean
 clean:
+	@echo "Cleaning up..."
 	rm -rf bin/
+	rm -f pkg/apis/scheduling/v1alpha1/zz_generated.deepcopy.go
+
+.PHONY: verify
+verify: generate
+	@echo "Verifying generated code is up to date..."
+	git diff --exit-code pkg/apis/

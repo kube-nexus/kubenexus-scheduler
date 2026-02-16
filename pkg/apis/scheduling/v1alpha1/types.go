@@ -34,12 +34,14 @@ type ResourceReservation struct {
 }
 
 // ResourceReservationSpec defines the desired state of ResourceReservation
+// +k8s:deepcopy-gen=true
 type ResourceReservationSpec struct {
 	// Reservations maps pod names to their resource reservations
 	Reservations map[string]Reservation `json:"reservations"`
 }
 
 // Reservation represents resources reserved for a single pod
+// +k8s:deepcopy-gen=true
 type Reservation struct {
 	// Node is the name of the node where resources are reserved
 	Node string `json:"node"`
@@ -52,6 +54,7 @@ type Reservation struct {
 }
 
 // ResourceReservationStatus defines the observed state of ResourceReservation
+// +k8s:deepcopy-gen=true
 type ResourceReservationStatus struct {
 	// Pods maps pod names to their current state
 	Pods map[string]string `json:"pods,omitempty"`
