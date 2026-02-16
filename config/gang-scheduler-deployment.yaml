@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gang
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gang-scheduler
+  namespace: gang
+---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: gang-scheduler-admin-binding
+    namespace: gang
+  subjects:
+    - kind: ServiceAccount
+      name: gang-scheduler
+      namespace: gang
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: cluster-admin
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gang-scheduler
+  namespace: gang
+  data: # TODO: add shared extenders at the bottom
+  kube-scheduler-config: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha2
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: false
+    clientConnection:
+      #kubeconfig: "REPLACE_ME_WITH_KUBE_CONFIG_PATH" #not-required, will use in-cluster config (default API)
+    profiles:
+   - schedulerName: default-scheduler
+      plugins:
+        queueSort:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+    - schedulerName: gang-scheduler
+      plugins:
+        queueSort:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        filter:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        preFilter:
+          enabled:
+            - name: Coscheduling
+        preScore:
+          enabled:
+            - name: Coscheduling
+        score:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        permit:
+          enabled:
+            - name: Coscheduling
+        preBind:
+          enabled:
+            - name: Coscheduling
+        bind:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        unreserve:
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gang-scheduler
+  namespace: gang
+  labels:
+    app: gang-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gang-scheduler
+  template:
+    metadata:
+      labels:
+        app: gang-scheduler
+    spec:
+      serviceAccountName: gang-scheduler
+      containers:
+      - command:
+        - /opt/kube-scheduler
+        - --address=0.0.0.0
+        - --config=/etc/config/config
+        - --v=10
+        image: gkr007/kube-gang-scheduler:my-tag
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10251
+          initialDelaySeconds: 15
+        name: k8s-second-scheduler
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10251
+        resources:
+          requests:
+            cpu: '0.1'
+        securityContext:
+          privileged: false
+        volumeMounts:
+        - name: kube-scheduler-config-volume
+          mountPath: /etc/config
+      hostNetwork: false
+      hostPID: false
+      volumes:
+      - name: kube-scheduler-config-volume
+        configMap:
+          name: gang-scheduler
+          items:
+          - key: kube-scheduler-config
+            path: config
+
