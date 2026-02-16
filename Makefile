@@ -21,7 +21,7 @@ build:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	$(BUILDENVVAR) go test -v ./pkg/...
+	$(BUILDENVVAR) go test -v ./pkg/apis/... ./pkg/plugins/coscheduling/... ./pkg/plugins/resourcereservation/... ./pkg/workload/... ./pkg/utils/... ./pkg/scheduler/...
 
 .PHONY: docker-build
 docker-build:
