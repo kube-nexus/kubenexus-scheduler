@@ -18,6 +18,10 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# Skip openapi generation for now - not needed for scheduler plugins
+echo "Skipping openapi generation for KubeNexus scheduler"
+exit 0
+
 # TODO: make this script run faster.
 
 SCRIPT_ROOT=$(dirname ${BASH_SOURCE})/..

@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubenexus-scheduler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubenexus-scheduler-as-kube-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kubenexus-scheduler
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:kube-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubenexus-scheduler-as-volume-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kubenexus-scheduler
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:volume-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubenexus-scheduler-extension-apiserver-authentication-reader
+  namespace: kube-system
+roleRef:
+  kind: Role
+  name: extension-apiserver-authentication-reader
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: kubenexus-scheduler
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubenexus-scheduler-config
+  namespace: kube-system
+data:
+  kubenexus-scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha2
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: true
+      resourceName: kubenexus-scheduler
+      resourceNamespace: kube-system
+      leaseDuration: 15s
+      renewDeadline: 10s
+      retryPeriod: 2s
+    profiles:
+    - schedulerName: kubenexus-scheduler
+      plugins:
+        queueSort:
+          enabled:
+          - name: Coscheduling
+          disabled:
+          - name: "*"
+        preFilter:
+          enabled:
+          - name: Coscheduling
+          - name: preExtender
+        filter:
+          enabled:
+          - name: Coscheduling
+        permit:
+          enabled:
+          - name: Coscheduling
+        reserve:
+          enabled:
+          - name: resourceReservation
+        preBind:
+          enabled:
+          - name: Coscheduling
+        bind:
+          enabled:
+          - name: Coscheduling
+          disabled:
+          - name: "*"
+        unreserve:
+          enabled:
+          - name: Coscheduling
+          - name: resourceReservation
+        score:
+          enabled:
+          - name: Coscheduling
+        preScore:
+          enabled:
+          - name: Coscheduling
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubenexus-scheduler
+  namespace: kube-system
+  labels:
+    component: kubenexus-scheduler
+    tier: control-plane
+spec:
+  replicas: 2  # High Availability with leader election
+  selector:
+    matchLabels:
+      component: kubenexus-scheduler
+  template:
+    metadata:
+      labels:
+        component: kubenexus-scheduler
+        tier: control-plane
+    spec:
+      serviceAccountName: kubenexus-scheduler
+      priorityClassName: system-cluster-critical
+      containers:
+      - name: kubenexus-scheduler
+        image: kubenexus-scheduler:latest
+        imagePullPolicy: IfNotPresent
+        command:
+        - /opt/kubenexus-scheduler
+        - --config=/etc/kubernetes/kubenexus-scheduler-config.yaml
+        - --leader-elect=true
+        - --leader-elect-resource-name=kubenexus-scheduler
+        - --leader-elect-resource-namespace=kube-system
+        - --v=3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/kubernetes
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: kubenexus-scheduler-config
+      hostNetwork: false
+      hostPID: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubenexus-scheduler
+  namespace: kube-system
+  labels:
+    component: kubenexus-scheduler
+spec:
+  type: ClusterIP
+  selector:
+    component: kubenexus-scheduler
+  ports:
+  - name: https
+    port: 10259
+    protocol: TCP
+    targetPort: 10259

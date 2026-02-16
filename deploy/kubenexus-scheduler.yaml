@@ -1,0 +1,188 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubenexus-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubenexus-scheduler
+  namespace: kubenexus-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubenexus-scheduler
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods/status"]
+  verbs: ["patch", "update"]
+- apiGroups: [""]
+  resources: ["pods/binding"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "csinodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["create", "get", "update"]
+- apiGroups: ["sparkscheduler.palantir.com"]
+  resources: ["resourcereservations"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubenexus-scheduler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubenexus-scheduler
+subjects:
+- kind: ServiceAccount
+  name: kubenexus-scheduler
+  namespace: kubenexus-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubenexus-config
+  namespace: kubenexus-system
+data:
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha2
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: true
+      resourceName: kubenexus-scheduler
+      resourceNamespace: kubenexus-system
+    clientConnection:
+      kubeconfig: ""
+    profiles:
+    - schedulerName: kubenexus-scheduler
+      plugins:
+        queueSort:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        filter:
+          enabled:
+            - name: Coscheduling
+        preFilter:
+          enabled:
+            - name: Coscheduling
+            - name: preExtender
+        preScore:
+          enabled:
+            - name: Coscheduling
+        score:
+          enabled:
+            - name: Coscheduling
+        permit:
+          enabled:
+            - name: Coscheduling
+        reserve:
+          enabled:
+            - name: resourceReservation
+        preBind:
+          enabled:
+            - name: Coscheduling
+        bind:
+          enabled:
+            - name: Coscheduling
+          disabled:
+            - name: "*"
+        unReserve:
+          enabled:
+            - name: Coscheduling
+            - name: resourceReservation
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubenexus-scheduler
+  namespace: kubenexus-system
+  labels:
+    app: kubenexus-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubenexus-scheduler
+  template:
+    metadata:
+      labels:
+        app: kubenexus-scheduler
+    spec:
+      serviceAccountName: kubenexus-scheduler
+      containers:
+      - name: scheduler
+        image: kubenexus-scheduler:v0.1.0
+        imagePullPolicy: IfNotPresent
+        command:
+          - /opt/kubenexus-scheduler
+          - --config=/etc/kubenexus/config.yaml
+          - --v=4
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kubenexus
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10251
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10251
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: kubenexus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubenexus-scheduler
+  namespace: kubenexus-system
+  labels:
+    app: kubenexus-scheduler
+spec:
+  selector:
+    app: kubenexus-scheduler
+  ports:
+  - name: metrics
+    port: 10251
+    protocol: TCP
+    targetPort: 10251
