@@ -21,6 +21,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	framework "k8s.io/kube-scheduler/framework"
 
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
@@ -30,7 +31,8 @@ import (
 // - Batch workloads: Bin packing (prefer fuller nodes for co-location)
 // - Service workloads: Spreading (prefer emptier nodes for HA)
 type HybridScorePlugin struct {
-	handle framework.Handle
+	handle    framework.Handle
+	podLister corelisters.PodLister
 }
 
 var _ framework.ScorePlugin = &HybridScorePlugin{}
@@ -54,7 +56,7 @@ func (h *HybridScorePlugin) Score(ctx context.Context, state framework.CycleStat
 	workloadType := workload.ClassifyPod(pod)
 
 	// Calculate node utilization (0-100%)
-	utilization := calculateNodeUtilization(nodeInfo)
+	utilization := h.calculateNodeUtilization(nodeInfo)
 
 	var score int64
 	switch workloadType {
@@ -91,7 +93,7 @@ func (h *HybridScorePlugin) ScoreExtensions() framework.ScoreExtensions {
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
 // Considers both CPU and memory, weighted equally.
-func calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
+func (h *HybridScorePlugin) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0
@@ -105,17 +107,45 @@ func calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
 		return 0
 	}
 
-	// TODO: Calculate requested resources from NodeInfo
-	// For now, return a conservative estimate based on node capacity
-	// This will be improved in a future iteration when we can access pod resources
-	
-	// Placeholder: return 50% utilization as neutral
-	return 50.0
+	// Get all pods from the lister and filter by this node
+	allPods, err := h.podLister.List(nil)
+	if err != nil {
+		return 50.0 // Conservative default
+	}
+
+	requestedCPU := float64(0)
+	requestedMemory := float64(0)
+
+	// Only sum pods that are scheduled on THIS specific node
+	for _, pod := range allPods {
+		if pod.Spec.NodeName == node.Name {
+			for _, container := range pod.Spec.Containers {
+				requestedCPU += float64(container.Resources.Requests.Cpu().MilliValue())
+				requestedMemory += float64(container.Resources.Requests.Memory().Value())
+			}
+		}
+	}
+
+	// Calculate utilization percentages
+	cpuUtilization := (requestedCPU / allocatableCPU) * 100.0
+	memoryUtilization := (requestedMemory / allocatableMemory) * 100.0
+
+	// Return weighted average (50% CPU, 50% Memory)
+	// Cap at 100% to handle overcommitted nodes
+	utilization := (cpuUtilization + memoryUtilization) / 2.0
+	if utilization > 100.0 {
+		utilization = 100.0
+	}
+
+	return utilization
 }
 
 // New initializes a new plugin and returns it.
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
+	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
+
 	return &HybridScorePlugin{
-		handle: handle,
+		handle:    handle,
+		podLister: podLister,
 	}, nil
 }
