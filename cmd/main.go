@@ -7,16 +7,28 @@ import (
 	
 	// Register scheduler plugins
 	coscheduling "sigs.k8s.io/scheduler-plugins/pkg/plugins/coscheduling"
+	gangpreemption "sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
 	resourcereservation "sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcereservation"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/scoring"
+	topologyspread "sigs.k8s.io/scheduler-plugins/pkg/plugins/topologyspread"
+	workloadaware "sigs.k8s.io/scheduler-plugins/pkg/plugins/workloadaware"
 )
 
 func main() {
 	command := app.NewSchedulerCommand(
+		// Gang scheduling and coordination
 		app.WithPlugin(coscheduling.Name, coscheduling.New),
+		
+		// Gang-aware preemption
+		app.WithPlugin(gangpreemption.Name, gangpreemption.New),
+		
+		// Resource reservation to prevent starvation
 		app.WithPlugin(resourcereservation.Name, resourcereservation.New),
-		app.WithPlugin(scoring.Name, scoring.New),
-		app.WithPlugin(scoring.PluginName, scoring.NewTopologySpreadScore),
+		
+		// Workload-aware scoring: bin packing for batch, spreading for services
+		app.WithPlugin(workloadaware.Name, workloadaware.New),
+		
+		// Zone-aware topology spreading for high availability
+		app.WithPlugin(topologyspread.Name, topologyspread.New),
 	)
 
 	if err := command.Execute(); err != nil {
