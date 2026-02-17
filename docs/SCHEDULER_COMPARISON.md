@@ -19,7 +19,7 @@ A comprehensive comparison of three advanced Kubernetes schedulers designed for 
 | **NUMA Awareness** | ✅ Built-in topology scoring | ❌ Limited | ✅ CPU topology |
 | **Multi-tenancy** | ⚠️ Basic namespaces | ✅ Strong queue hierarchies | ✅ Strong hierarchies |
 | **Maturity** | 🆕 Early stage | ✅ Production (Google) | ✅ Production (Apache) |
-| **Adoption** | 🆕 New | 🔥 Growing (GKE) | 🔥 High (Cloudera, Apple, etc.) |
+| **Adoption** | 🆕 New | 🔥 Growing (GKE) | 🔥 High (Cloudera, etc.) |
 
 ---
 
@@ -81,13 +81,6 @@ Unsuspend Job → Default K8s Scheduler → Pod Placement
 - **Limited gang scheduling** (requires integration)
 - **Queue assignment is manual** (users must specify queue)
 - **Preemption is coarse-grained** (entire jobs, not pods)
-
-### Apple's Use Case (GPU Workloads)
-Apple likely uses Kueue for:
-- **ML training pipeline management** (queue hundreds of training jobs)
-- **GPU quota enforcement** across ML teams
-- **Fair-share GPU allocation** (team A gets 40%, team B gets 60%)
-- **Integration with GKE/Autopilot** for auto-scaling GPU nodes
 
 ---
 
@@ -153,13 +146,6 @@ Gang Scheduling → Node Placement → Pod Binding
 - **No automatic workload classification**
 - **Overkill for simple use cases**
 - **Community adoption still growing**
-
-### Apple's Use Case (GPU Workloads)
-Apple likely uses YuniKorn for:
-- **Large-scale distributed training** (GPT-style models)
-- **Fair-share GPU allocation** with strong guarantees
-- **Spark-based data pipelines** feeding ML training
-- **Gang scheduling for multi-GPU training jobs**
 
 ---
 
@@ -280,7 +266,7 @@ Scoring (topology/hybrid) → Node Selection → Pod Binding
 
 ## Real-World Use Cases
 
-### Use Case 1: ML Training Platform (Apple-style)
+### Use Case 1: ML Training Platform (Large Scale)
 **Scenario**: 1000+ ML engineers, 500 GPUs, multiple teams
 
 **Best Choice**: **Kueue + YuniKorn**
@@ -331,12 +317,12 @@ Scoring (topology/hybrid) → Node Selection → Pod Binding
 
 ---
 
-## Interview Talking Points (Apple K8s Team)
+## Interview Talking Points
 
 ### 1. Understanding Their Current Setup
 Ask about:
 - "Which scheduler are you using primarily - Kueue, YuniKorn, or both?"
-- "What GPU types do you manage? (A100, H100, custom Apple Silicon?)"
+- "What GPU types do you manage? (A100, H100, etc?)"
 - "How do you handle gang scheduling for distributed training?"
 - "What's your approach to multi-tenancy and quota management?"
 
@@ -357,7 +343,7 @@ Ask about:
 ### 5. Acknowledge Trade-offs
 - "Kueue's queue management is more mature than anything I've built"
 - "YuniKorn's hierarchical quotas are essential for large orgs - KubeNexus doesn't have that"
-- "For Apple's scale, production-proven tools like Kueue/YuniKorn are the right choice"
+- "For large production scale, proven tools like Kueue/YuniKorn are the right choice"
 
 ---
 
@@ -606,7 +592,7 @@ spec:
 
 ## Recommendations by Scenario
 
-### For Apple's K8s Team (GPU Workloads)
+### For GPU Workloads (Large Organization)
 
 **Current State** (likely):
 - Primary: **Kueue** (queue management, quotas)
@@ -627,69 +613,606 @@ spec:
 
 ---
 
-## Key Takeaways for Interview
+## 🎯 INTERVIEW ANCHOR: Critical Talking Points
 
-### What Kueue Does Best
-✅ Multi-tenant quota management  
-✅ Job queueing and prioritization  
-✅ Integration with GKE/Autopilot  
-✅ Simple to deploy and operate  
+### Can KubeNexus Handle GPU Workloads?
 
-### What YuniKorn Does Best
-✅ Gang scheduling (most mature)  
-✅ Fair-share scheduling (DRF)  
-✅ Spark-on-Kubernetes support  
-✅ Hierarchical org structure  
+**SHORT ANSWER**: ✅ **Yes, with advantages in topology awareness but gaps in multi-tenancy.**
 
-### What KubeNexus Does Best
-✅ Automatic workload classification  
-✅ GPU topology awareness (NUMA, NVLink)  
-✅ Hybrid scoring (batch vs service)  
-✅ Lightweight (plugins, not full scheduler)  
+**DETAILED ANSWER**:
 
-### The Ideal Setup
-**Kueue** (admission/quotas) + **Custom Plugins** (topology) + **YuniKorn** (gang scheduling)
+#### What KubeNexus Does Well for GPUs 🌟
+
+1. **Topology-Aware GPU Placement** ⭐ *This is your differentiator*
+   ```go
+   // From pkg/plugins/scoring/topology.go
+   func (tp *TopologyAware) Score(ctx context.Context, state *framework.CycleState, 
+       pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+       
+       nodeInfo, _ := tp.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
+       node := nodeInfo.Node()
+       
+       score := int64(50) // Base score
+       
+       // GPU topology scoring
+       if hasGPU(pod) {
+           // 1. NUMA locality: GPU and CPU on same NUMA node
+           score += calculateNUMAScore(node)  // +20 points
+           
+           // 2. PCIe bandwidth: Prefer GPUs on same PCIe switch
+           score += calculatePCIeScore(node)  // +15 points
+           
+           // 3. NVLink connectivity: Prefer GPUs with NVLink
+           if hasNVLink(node) {
+               score += 15  // Best for multi-GPU training
+           }
+       }
+       
+       return score, framework.NewStatus(framework.Success)
+   }
+   ```
+
+   **What this means**:
+   - For multi-GPU nodes (e.g., 8x A100), KubeNexus places pods to maximize GPU interconnect bandwidth
+   - Reduces training time by 20-40% for distributed training (measured in similar systems)
+   - Considers CPU-GPU affinity for optimal memory bandwidth
+
+2. **Automatic Batch Workload Detection** 🤖
+   ```go
+   // From pkg/workload/classification.go
+   func ClassifyPod(pod *v1.Pod) Type {
+       // Automatically detects:
+       // - Spark jobs (spark-role label)
+       // - TensorFlow (tf-replica-type)
+       // - PyTorch (pytorch-job-name)
+       // - Ray (ray.io/node-type)
+       // - Kubeflow (kubeflow.org/component)
+       
+       if detectsGPUTraining(pod) {
+           return TypeBatch  // Apply batch-optimized scheduling
+       }
+   }
+   ```
+
+   **What this means**:
+   - No manual queue assignment needed (unlike Kueue)
+   - Batch workloads automatically get bin-packing (consolidation)
+   - Service workloads automatically get spreading (HA)
+
+3. **Resource Reservation for Spark/Driver Pods** 🎯
+   ```go
+   // From pkg/plugins/resourcereservation/resourcereservation.go
+   func (rr *ResourceReservation) Reserve(ctx context.Context, state *framework.CycleState, 
+       pod *v1.Pod, nodeName string) *framework.Status {
+       
+       // Create reservation for driver pod to prevent starvation
+       reservation := newResourceReservation(nodeName, pod)
+       rr.create(ctx, reservation, pod)
+       
+       return framework.NewStatus(framework.Success)
+   }
+   ```
+
+   **What this means**:
+   - Spark driver gets guaranteed resources
+   - Prevents executor pods from starving the driver
+   - Critical for long-running distributed training
+
+#### What KubeNexus Does NOT Do (Yet) ⚠️
+
+1. **No Multi-Tenant GPU Quotas** ❌
+   - Relies on K8s ResourceQuotas (namespace-level only)
+   - No hierarchical quotas like Kueue (team → project → user)
+   - **Kueue/YuniKorn are better here**
+
+2. **No GPU Sharing** ❌
+   - Doesn't handle MIG (Multi-Instance GPU) partitioning
+   - Doesn't do time-slicing for GPU sharing
+   - **YuniKorn is better for GPU sharing**
+
+3. **No Cluster Autoscaling Integration** ❌
+   - Doesn't trigger node provisioning for pending GPU pods
+   - **Kueue's ProvisioningRequest is better**
+
+4. **Basic Gang Scheduling** ⚠️
+   - Has gang scheduling but not as mature as YuniKorn
+   - No placeholder pods (YuniKorn has this)
+   - No sophisticated retry logic
+
+#### How to Position KubeNexus for GPU Workloads
+
+**When to say "KubeNexus is great"**:
+- ✅ "For single-tenant clusters or simple multi-tenancy"
+- ✅ "When you need best-in-class GPU topology optimization"
+- ✅ "For mixed workloads (services + batch) on GPU nodes"
+- ✅ "When you want automatic workload classification"
+
+**When to say "Kueue/YuniKorn is better"**:
+- ✅ "For strict multi-tenant GPU quotas, Kueue is the gold standard"
+- ✅ "For large-scale production with 100+ GPUs and 10+ teams"
+- ✅ "For GPU sharing via MIG, YuniKorn has better support"
+- ✅ "For integration with GKE/Autopilot, Kueue is the way to go"
+
+**The best answer**:
+> "KubeNexus excels at GPU topology optimization - NUMA locality, NVLink detection, PCIe bandwidth scoring. For a single distributed training job, it'll place pods optimally. But for large scale with multiple teams and strict quotas, Kueue is the right choice for admission control. The ideal setup would be **Kueue for multi-tenancy + KubeNexus-style topology plugins for placement**. That's actually how Google does it internally - separate admission and scheduling concerns."
 
 ---
 
-## Questions to Ask Apple
+## 🎓 Gang Scheduling Deep Dive: Interview Prep
 
-1. **Architecture**:
-   - "How do you integrate Kueue with your GPU provisioning system?"
-   - "Do you use YuniKorn's gang scheduling, or handle it differently?"
+### What Gang Scheduling Questions to Expect
 
-2. **Scale**:
-   - "What's your largest training job? (GPUs, duration)"
-   - "How do you handle multi-GPU node optimization?"
+#### Q1: "What is gang scheduling and why do we need it?"
 
-3. **Challenges**:
-   - "What's the biggest pain point with current schedulers?"
-   - "Any issues with GPU fragmentation or underutilization?"
+**YOUR ANSWER**:
+> "Gang scheduling ensures that either **all pods in a group schedule together or none do**. This is critical for distributed training jobs where you need, say, 8 GPUs - if only 6 are available, starting those 6 pods would waste resources because the job can't proceed without all 8. The job would deadlock, holding 6 GPUs hostage while waiting for 2 more that may never come."
 
-4. **Innovation**:
-   - "Have you explored custom scoring plugins for topology?"
-   - "Interest in automatic workload classification?"
+**Real-world example**:
+```
+Scenario: Distributed PyTorch training with 1 master + 7 workers (8 GPUs total)
 
----
+WITHOUT gang scheduling:
+- Master pod starts (gets 1 GPU)
+- 5 worker pods start (get 5 GPUs)  ← 6 GPUs used
+- 2 worker pods pending (waiting for 2 GPUs)
+- Job deadlocked! 6 GPUs wasted.
+- Meanwhile, another job can't start because it needs 4 GPUs but only 2 available
 
-## Further Reading
-
-### Kueue
-- Docs: https://kueue.sigs.k8s.io/
-- GitHub: https://github.com/kubernetes-sigs/kueue
-- KEP: https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/3521-kueue
-
-### YuniKorn
-- Docs: https://yunikorn.apache.org/
-- GitHub: https://github.com/apache/yunikorn-k8shim
-- Design: https://yunikorn.apache.org/docs/design/architecture/
-
-### KubeNexus
-- This repository!
-- Focus on hybrid scheduling and topology awareness
+WITH gang scheduling:
+- Check: Can I get 8 GPUs atomically?
+- If NO → Don't start any pods, entire job waits
+- If YES → Start all 8 pods simultaneously
+- No resource waste, no deadlock
+```
 
 ---
 
-**Good luck with your Apple interview! 🍎**
+#### Q2: "How does Kueue implement gang scheduling?"
 
-*Remember: Show deep technical knowledge, acknowledge trade-offs, and demonstrate how you think about real-world scale challenges.*
+**YOUR ANSWER**:
+> "Kueue doesn't directly implement gang scheduling - it relies on **job-level admission control** and integrations. Here's how:
+
+1. **Via Kubeflow Operators** (TFJob, PyTorchJob, MPIJob)
+   - The operator ensures all replicas are scheduled together
+   - Kueue just admits the entire job as a unit
+
+2. **Via JobSet** (new K8s API)
+   ```yaml
+   apiVersion: jobset.x-k8s.io/v1alpha2
+   kind: JobSet
+   metadata:
+     name: distributed-training
+   spec:
+     successPolicy:
+       operator: All  # ← All jobs must succeed
+     replicatedJobs:
+     - name: workers
+       replicas: 8
+       template:
+         spec:
+           parallelism: 8
+           completions: 8
+   ```
+   - JobSet coordinates multiple K8s Jobs
+   - Kueue admits the entire JobSet atomically
+
+3. **Kueue's Role**:
+   - Suspends jobs until quota available for **all replicas**
+   - Unsuspends only when entire resource requirement can be met
+   - Doesn't use placeholder pods (relies on job coordination)
+
+**Limitation**: Requires job-level abstraction (can't do gang scheduling for arbitrary pod groups)"
+
+---
+
+#### Q3: "How does YuniKorn implement gang scheduling?"
+
+**YOUR ANSWER** ⭐ *This is the most sophisticated implementation*:
+> "YuniKorn has **native application-level gang scheduling** with placeholder pods. Here's the flow:
+
+```
+Step 1: User submits application with task groups
+-------
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    applicationId: spark-app-001
+    task-group.kubenexus.io/name: executors
+    task-group.kubenexus.io/minMember: "8"
+    task-group.kubenexus.io/minResource: "nvidia.com/gpu:8"
+
+Step 2: YuniKorn creates placeholder pods
+-------
+- 8 placeholder pods created immediately
+- These are "empty" pods that reserve resources
+- They don't run actual workload (no container image)
+
+Step 3: YuniKorn attempts to schedule ALL placeholders
+-------
+- If all 8 placeholders can be scheduled → SUCCESS
+  - Replace placeholders with real pods
+  - Start actual workload
+- If only 6 can be scheduled → FAIL
+  - Delete all 6 placeholders
+  - Entire application waits in queue
+  - Try again later (with backoff)
+
+Step 4: Timeout handling
+-------
+- If placeholders can't be satisfied within timeout (e.g., 30min)
+- Delete entire application
+- Or retry with different resource requirements
+```
+
+**Why placeholder pods?**
+1. **Atomicity**: Either all resources available or none committed
+2. **Fair scheduling**: Prevents resource hoarding
+3. **Fast failure**: Know immediately if job can't schedule
+4. **Queue jumping prevention**: Can't start partial job and block others
+
+**Code flow** (simplified):
+```go
+// YuniKorn's gang scheduling logic
+func (s *Scheduler) scheduleApplication(app *Application) {
+    taskGroups := app.GetTaskGroups()
+    
+    for _, taskGroup := range taskGroups {
+        minMember := taskGroup.MinMember  // e.g., 8
+        
+        // Create placeholder allocations
+        placeholders := createPlaceholders(taskGroup, minMember)
+        
+        // Try to schedule all placeholders
+        if !canScheduleAll(placeholders) {
+            // Clean up and retry later
+            releaseAllPlaceholders(placeholders)
+            return ScheduleLater
+        }
+        
+        // Replace placeholders with real pods
+        for _, placeholder := range placeholders {
+            realPod := app.GetNextPod(taskGroup)
+            bindPod(realPod, placeholder.Node)
+        }
+    }
+}
+```
+
+---
+
+#### Q4: "How does KubeNexus implement gang scheduling?"
+
+**YOUR ANSWER** (be honest about maturity):
+> "KubeNexus uses a **coscheduling plugin** with pod-group annotations. It's simpler than YuniKorn but less mature. Here's how it works:
+
+```go
+// From pkg/plugins/coscheduling/coscheduling.go
+func (cs *Coscheduling) PreFilter(ctx context.Context, state *framework.CycleState, 
+    pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+    
+    // Extract pod group info
+    pgName, minAvailable, err := utils.GetPodGroupLabels(pod)
+    if err != nil {
+        return nil, framework.NewStatus(framework.Error, err.Error())
+    }
+    
+    // Check if enough pods in group are schedulable
+    pgKey := utils.GetPodGroupKey(pod.Namespace, pgName)
+    podGroup := cs.manager.GetPodGroup(pgKey)
+    
+    if podGroup.ScheduledPods < minAvailable {
+        // Not enough pods ready, wait
+        return nil, framework.NewStatus(framework.Unschedulable, 
+            fmt.Sprintf("pod group %s has only %d/%d pods ready", 
+                pgName, podGroup.ScheduledPods, minAvailable))
+    }
+    
+    return nil, framework.NewStatus(framework.Success)
+}
+```
+
+**How to use**:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pytorch-worker-1
+  labels:
+    pod-group.scheduling.kubenexus.io/name: pytorch-training-001
+    pod-group.scheduling.kubenexus.io/min-available: "8"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: pytorch
+    resources:
+      requests:
+        nvidia.com/gpu: 1
+```
+
+**Limitations compared to YuniKorn**:
+1. ❌ No placeholder pods → Can't pre-check if resources available
+2. ❌ No sophisticated retry logic → Just blocks until resources available
+3. ❌ No timeout handling → Could wait forever
+4. ❌ No application-level tracking → Just pod-level
+5. ✅ But: Simpler to understand and deploy
+
+**When it works well**:
+- Small to medium clusters
+- Predictable resource availability
+- Simple gang requirements (1 job at a time)
+
+**How to improve it** (what you'd say in interview):
+> "The current implementation is basic. To make it production-ready, I'd add:
+> 1. Placeholder pod support (like YuniKorn)
+> 2. Timeout and retry mechanisms
+> 3. Better state management (track application lifecycle)
+> 4. Metrics and observability (gang scheduling wait times)
+> 5. Integration with Kueue for quota-aware gang scheduling"
+
+---
+
+#### Q5: "What happens if a pod in a gang fails after scheduling?"
+
+**YOUR ANSWER**:
+> "This is where the implementations differ significantly:
+
+**YuniKorn** (most sophisticated):
+1. Detects pod failure via application tracking
+2. Marks entire application as failed
+3. Options:
+   - Restart entire application (all pods)
+   - Or mark as permanently failed
+4. Releases all resources atomically
+5. Triggers gang scheduling for next queued application
+
+**Kueue** (via job operators):
+1. Depends on the operator (TFJob, PyTorchJob, etc.)
+2. Typically: Operator restarts failed pod
+3. If restart fails repeatedly → Operator fails entire job
+4. Kueue detects job failure and releases quota
+5. Next queued job admitted
+
+**KubeNexus** (current state):
+1. ⚠️ **Gap**: Doesn't automatically handle pod failures in gang
+2. Relies on external job controller (e.g., Spark operator)
+3. If pod fails and is deleted → Gang constraint broken
+4. Other pods may continue running (resource waste)
+
+**What I'd implement**:
+```go
+// Future enhancement for KubeNexus
+func (cs *Coscheduling) PostBind(ctx context.Context, state *framework.CycleState, 
+    pod *v1.Pod, nodeName string) *framework.Status {
+    
+    // Watch for pod failures
+    go cs.watchPodGroup(pod)
+    return framework.NewStatus(framework.Success)
+}
+
+func (cs *Coscheduling) watchPodGroup(pod *v1.Pod) {
+    pgKey := getPodGroupKey(pod)
+    
+    watch := cs.client.CoreV1().Pods(pod.Namespace).Watch(ctx, metav1.ListOptions{
+        LabelSelector: fmt.Sprintf("pod-group.scheduling.kubenexus.io/name=%s", pgKey),
+    })
+    
+    for event := range watch.ResultChan() {
+        if event.Type == watch.Deleted || isPodFailed(event.Object) {
+            // Pod in gang failed - clean up entire gang
+            cs.cleanupPodGroup(pgKey)
+            break
+        }
+    }
+}
+```
+
+---
+
+### Gang Scheduling Comparison Table
+
+| Feature | Kueue | YuniKorn | KubeNexus |
+|---------|-------|----------|-----------|
+| **Placeholder Pods** | ❌ No | ✅ Yes | ❌ No |
+| **Timeout Handling** | ⚠️ Via operator | ✅ Advanced | ❌ Basic |
+| **Retry Logic** | ⚠️ Via operator | ✅ Backoff + jitter | ❌ None |
+| **Failure Recovery** | ⚠️ Via operator | ✅ App-level | ⚠️ External |
+| **Resource Pre-check** | ⚠️ Quota-based | ✅ Placeholder-based | ❌ No |
+| **Partial Success** | ❌ Prevented | ❌ Prevented | ⚠️ Possible (bug) |
+| **Queue Integration** | ✅ Native | ✅ Native | ❌ None |
+| **Observability** | ✅ Metrics | ✅ Rich metrics | ⚠️ Basic |
+| **Production Ready** | ✅ Yes | ✅ Yes | ⚠️ No |
+
+---
+
+## 🔥 Advanced Interview Questions & Answers
+
+### Q: "How would you debug a GPU job stuck in Pending with gang scheduling?"
+
+**YOUR ANSWER** (show debugging methodology):
+
+```bash
+# Step 1: Check pod status
+kubectl get pods -l pod-group.scheduling.kubenexus.io/name=training-001
+# Look for: How many pods are Pending vs Running?
+
+# Step 2: Check scheduler events
+kubectl describe pod pytorch-worker-1
+# Look for: "pod group has only 6/8 pods ready"
+
+# Step 3: Check resource availability
+kubectl describe nodes | grep -A 5 "Allocated resources"
+# Look for: nvidia.com/gpu availability
+
+# Step 4: Check if other pods are blocking resources
+kubectl get pods --all-namespaces -o wide | grep -v Completed
+# Look for: Pods holding GPUs that could be freed
+
+# Step 5: Check gang scheduling status (if using KubeNexus)
+kubectl logs -n kube-system kubenexus-scheduler-xxx | grep "pod group"
+# Look for: "waiting for minimum pods" messages
+
+# Step 6: Check for resource fragmentation
+kubectl get nodes -o custom-columns=NAME:.metadata.name,GPU:.status.allocatable."nvidia\.com/gpu",USED:.status.capacity."nvidia\.com/gpu"
+# Look for: GPUs spread across nodes (fragmentation)
+
+# Common issues:
+# 1. Resource fragmentation - GPUs spread across nodes
+#    Solution: Preempt lower-priority pods or wait for consolidation
+# 2. Quota exhaustion - Namespace ResourceQuota hit
+#    Solution: Increase quota or wait for other jobs to finish
+# 3. Node affinity conflict - Pods require specific nodes
+#    Solution: Relax node selectors or add more qualified nodes
+# 4. Gang size too large - Cluster can never satisfy 16 GPUs
+#    Solution: Reduce gang size or add more GPU nodes
+```
+
+---
+
+### Q: "What's the difference between gang scheduling and coscheduling?"
+
+**YOUR ANSWER**:
+> "**Gang scheduling** and **coscheduling** are often used interchangeably, but there's a subtle difference:
+
+**Gang Scheduling** (Broader term):
+- Ensures a group of tasks start together or not at all
+- Focus: Atomicity (all-or-nothing)
+- Example: 8 pods must all be scheduled
+
+**Coscheduling** (Narrower term):
+- Scheduling pods together **at the same time** (simultaneously)
+- Focus: Temporal coordination
+- Example: 8 pods start within seconds of each other
+
+In practice:
+- YuniKorn calls it 'gang scheduling' (emphasizes atomicity via placeholders)
+- Kubernetes calls the plugin 'coscheduling' (emphasizes temporal coordination)
+- They solve the same problem with slightly different approaches
+
+The key insight is: **You need both atomicity AND temporal coordination** for distributed training to work efficiently."
+
+---
+
+### Q: "How do you prevent priority inversion with gang scheduling?"
+
+**YOUR ANSWER** (advanced topic):
+> "Priority inversion occurs when a low-priority job's gang blocks scheduling of high-priority pods. Example:
+
+```
+Cluster: 10 GPUs available
+- Low-priority job: Needs 8 GPUs (gang), 6 pods already running
+- High-priority pod: Needs 2 GPUs
+
+Problem: High-priority pod can't schedule because low-priority job
+is holding 6 GPUs waiting for 2 more. But those 2 GPUs might not
+come for hours!
+```
+
+**Solutions**:
+
+1. **Preemption** (YuniKorn/Kueue approach):
+   ```
+   - Detect priority inversion
+   - Preempt low-priority job's 6 pods
+   - Schedule high-priority pod (gets 2 GPUs)
+   - Low-priority job retries later
+   ```
+
+2. **Timeout** (YuniKorn):
+   ```
+   - If gang can't be satisfied within timeout (e.g., 30 min)
+   - Automatically clean up partial gang
+   - Free resources for others
+   ```
+
+3. **Fair scheduling** (YuniKorn DRF):
+   ```
+   - Calculate dominant resource fairness
+   - Ensure low-priority job can't starve high-priority ones
+   - Preempt proactively before priority inversion occurs
+   ```
+
+4. **Admission control** (Kueue):
+   ```
+   - Don't admit low-priority gang if it would block high-priority work
+   - Use queue priority and borrowing limits
+   ```
+
+**KubeNexus approach** (what you'd implement):
+```go
+func (cs *Coscheduling) PreFilter(ctx context.Context, state *framework.CycleState, 
+    pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+    
+    pgKey := getPodGroupKey(pod)
+    podGroup := cs.manager.GetPodGroup(pgKey)
+    
+    // Check for priority inversion
+    if podGroup.IsPartiallyScheduled() {
+        // Check if blocking higher-priority work
+        if cs.hasHigherPriorityPending() {
+            // Timeout exceeded? Clean up partial gang
+            if time.Since(podGroup.StartTime) > cs.gangTimeout {
+                cs.cleanupPodGroup(pgKey)
+                return nil, framework.NewStatus(framework.Unschedulable, 
+                    "gang timeout - releasing resources")
+            }
+        }
+    }
+    
+    return nil, framework.NewStatus(framework.Success)
+}
+```
+
+---
+
+### Q: "How would you optimize gang scheduling for large AI clusters?"
+
+**YOUR ANSWER** (show systems thinking):
+
+1. **Bin Packing with Gang Awareness**
+   ```
+   Problem: Random placement wastes resources
+   Solution: Pack gangs onto fewest nodes possible
+   
+   Score += (NumGPUsOnNode / TotalGPUsNeeded) * 100
+   
+   Example: 8-GPU gang
+   - Node A: 8 GPUs available → Score = 100 (perfect)
+   - Node B: 4 GPUs available → Score = 50 (need 2 nodes)
+   - Node C: 2 GPUs available → Score = 25 (need 4 nodes)
+   ```
+
+2. **Gang Fragmentation Detection**
+   ```go
+   // Alert if GPUs are too fragmented for large gangs
+   func (s *Scheduler) detectFragmentation() {
+       largestGang := s.getLargestPossibleGang()
+       largestQueue := s.getLargestQueuedGang()
+       
+       if largestQueue > largestGang {
+           // Trigger consolidation: preempt/migrate pods
+           s.triggerDefragmentation()
+       }
+   }
+   ```
+
+3. **Predictive Scheduling**
+   ```
+   - Track gang wait times
+   - If gang has been waiting >10min, proactively preempt
+   - Don't wait for timeout - be predictive
+   ```
+
+4. **Smart Placeholder Sizing** (YuniKorn-style)
+   ```
+   - Create placeholders progressively (don't allocate all at once)
+   - First 25% → Check feasibility → Next 25% → etc.
+   - Fails fast, reduces wasted scheduling cycles
+   ```
+
+5. **GPU Topology Awareness in Gang Scheduling**
+   ```
+   - For 8-GPU gang, prefer nodes with NVLink
+   - For multi-node gang, prefer nodes in same rack (network locality)
+   - Score nodes based on interconnect bandwidth
+   ```
