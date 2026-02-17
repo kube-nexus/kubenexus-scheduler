@@ -46,6 +46,7 @@ profiles:
     score:
       enabled:
         - name: WorkloadAwareScoring   # Adaptive: bin packing for batch, spreading for services
+        - name: BackfillScoring         # Opportunistic: fills idle capacity with low-priority pods
         - name: TopologySpreadScoring   # Zone-aware spreading for high availability
         - name: Coscheduling            # Gang scheduling preferences
       disabled:

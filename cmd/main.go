@@ -6,6 +6,7 @@ import (
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 	
 	// Register scheduler plugins
+	backfill "sigs.k8s.io/scheduler-plugins/pkg/plugins/backfill"
 	coscheduling "sigs.k8s.io/scheduler-plugins/pkg/plugins/coscheduling"
 	gangpreemption "sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
 	resourcereservation "sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcereservation"
@@ -29,6 +30,9 @@ func main() {
 		
 		// Zone-aware topology spreading for high availability
 		app.WithPlugin(topologyspread.Name, topologyspread.New),
+		
+		// Backfill scoring: fills idle capacity with low-priority interruptible pods
+		app.WithPlugin(backfill.Name, backfill.New),
 	)
 
 	if err := command.Execute(); err != nil {
