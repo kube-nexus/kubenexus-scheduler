@@ -1,0 +1,451 @@
+# Advanced NUMA-Aware Scheduling Examples for KubeNexus
+#
+# This file demonstrates all advanced NUMA features:
+# 1. Basic NUMA policies
+# 2. NUMA affinity/anti-affinity
+# 3. Memory-intensive workload optimization
+# 4. NUMA distance/latency awareness
+# 5. Gang scheduling with NUMA constraints
+
+---
+# Example 1: ML Training with Strict NUMA (single pod)
+# Use Case: Large ML model training that needs to fit in single NUMA node
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-training-strict
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: trainer
+    image: ml-training:v1
+    resources:
+      requests:
+        cpu: "12"
+        memory: "96Gi"
+      limits:
+        cpu: "12"
+        memory: "96Gi"
+
+---
+# Example 2: Data Processing with NUMA Affinity
+# Use Case: Pin to specific NUMA nodes (0,1) for consistent performance
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-processing-affinity
+  namespace: data-workloads
+  annotations:
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/numa-affinity-node-id: "0,1"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: processor
+    image: data-processor:v2
+    resources:
+      requests:
+        cpu: "8"
+        memory: "64Gi"
+      limits:
+        cpu: "8"
+        memory: "64Gi"
+
+---
+# Example 3: Inference Service with NUMA Anti-Affinity
+# Use Case: Avoid NUMA nodes with noisy neighbors (nodes 2,3)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inference-anti-affinity
+  namespace: inference
+  annotations:
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/numa-anti-affinity-node-id: "2,3"
+    scheduling.kubenexus.io/numa-distance-weight: "90"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: inference
+    image: model-inference:v1
+    resources:
+      requests:
+        cpu: "6"
+        memory: "24Gi"
+      limits:
+        cpu: "6"
+        memory: "24Gi"
+
+---
+# Example 4: Memory-Intensive Analytics (Best Effort)
+# Use Case: Large memory requirement, prefer NUMA but allow cross-NUMA
+apiVersion: v1
+kind: Pod
+metadata:
+  name: analytics-best-effort
+  namespace: analytics
+  annotations:
+    scheduling.kubenexus.io/numa-policy: "best-effort"
+    scheduling.kubenexus.io/memory-intensive: "true"
+    scheduling.kubenexus.io/numa-distance-weight: "50"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: analytics
+    image: spark-analytics:v3
+    resources:
+      requests:
+        cpu: "20"
+        memory: "160Gi"
+      limits:
+        cpu: "20"
+        memory: "160Gi"
+
+---
+# Example 5: Gang Scheduling - Packed Policy
+# Use Case: Distributed ML training, co-locate workers for low latency
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-worker-0
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "ml-training-job-001"
+    scheduling.kubenexus.io/gang-numa-spread: "packed"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: ml-distributed-training:v1
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-worker-1
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "ml-training-job-001"
+    scheduling.kubenexus.io/gang-numa-spread: "packed"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: ml-distributed-training:v1
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-worker-2
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "ml-training-job-001"
+    scheduling.kubenexus.io/gang-numa-spread: "packed"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: ml-distributed-training:v1
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+      limits:
+        cpu: "8"
+        memory: "32Gi"
+
+---
+# Example 6: Gang Scheduling - Balanced Policy
+# Use Case: Data parallel processing, spread workers across NUMA for bandwidth
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-worker-0
+  namespace: data-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "data-parallel-job-002"
+    scheduling.kubenexus.io/gang-numa-spread: "balanced"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: data-parallel:v1
+    resources:
+      requests:
+        cpu: "6"
+        memory: "24Gi"
+      limits:
+        cpu: "6"
+        memory: "24Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-worker-1
+  namespace: data-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "data-parallel-job-002"
+    scheduling.kubenexus.io/gang-numa-spread: "balanced"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: data-parallel:v1
+    resources:
+      requests:
+        cpu: "6"
+        memory: "24Gi"
+      limits:
+        cpu: "6"
+        memory: "24Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-worker-2
+  namespace: data-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "data-parallel-job-002"
+    scheduling.kubenexus.io/gang-numa-spread: "balanced"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: data-parallel:v1
+    resources:
+      requests:
+        cpu: "6"
+        memory: "24Gi"
+      limits:
+        cpu: "6"
+        memory: "24Gi"
+
+---
+# Example 7: Gang Scheduling - Isolated Policy
+# Use Case: HPC simulation, each worker needs dedicated NUMA node
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hpc-worker-0
+  namespace: hpc
+  annotations:
+    scheduling.kubenexus.io/gang-group: "hpc-simulation-003"
+    scheduling.kubenexus.io/gang-numa-spread: "isolated"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: hpc-simulation:v2
+    resources:
+      requests:
+        cpu: "16"
+        memory: "64Gi"
+      limits:
+        cpu: "16"
+        memory: "64Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hpc-worker-1
+  namespace: hpc
+  annotations:
+    scheduling.kubenexus.io/gang-group: "hpc-simulation-003"
+    scheduling.kubenexus.io/gang-numa-spread: "isolated"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/memory-intensive: "true"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: hpc-simulation:v2
+    resources:
+      requests:
+        cpu: "16"
+        memory: "64Gi"
+      limits:
+        cpu: "16"
+        memory: "64Gi"
+
+---
+# Example 8: Complex Multi-Constraint NUMA
+# Use Case: Latency-sensitive + memory-intensive + affinity + gang
+apiVersion: v1
+kind: Pod
+metadata:
+  name: complex-worker-0
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "complex-job-004"
+    scheduling.kubenexus.io/gang-numa-spread: "packed"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/numa-affinity-node-id: "0,1"
+    scheduling.kubenexus.io/numa-anti-affinity-node-id: "3"
+    scheduling.kubenexus.io/memory-intensive: "true"
+    scheduling.kubenexus.io/numa-distance-weight: "80"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: complex-workload:v1
+    resources:
+      requests:
+        cpu: "10"
+        memory: "80Gi"
+      limits:
+        cpu: "10"
+        memory: "80Gi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: complex-worker-1
+  namespace: ml-workloads
+  annotations:
+    scheduling.kubenexus.io/gang-group: "complex-job-004"
+    scheduling.kubenexus.io/gang-numa-spread: "packed"
+    scheduling.kubenexus.io/numa-policy: "single-numa-node"
+    scheduling.kubenexus.io/numa-affinity-node-id: "0,1"
+    scheduling.kubenexus.io/numa-anti-affinity-node-id: "3"
+    scheduling.kubenexus.io/memory-intensive: "true"
+    scheduling.kubenexus.io/numa-distance-weight: "80"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: complex-workload:v1
+    resources:
+      requests:
+        cpu: "10"
+        memory: "80Gi"
+      limits:
+        cpu: "10"
+        memory: "80Gi"
+
+---
+# Example 9: Service Workload (No NUMA)
+# Use Case: Microservice that doesn't need NUMA awareness
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api-service
+  namespace: services
+  annotations:
+    scheduling.kubenexus.io/numa-policy: "none"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: api
+    image: api-service:v1
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+
+---
+# Example 10: Node Labeling ConfigMap
+# Use Case: Reference for labeling nodes with NUMA topology
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: numa-labeling-guide
+  namespace: kube-system
+data:
+  label-2-socket-server.sh: |
+    #!/bin/bash
+    # Label a 2-socket server with NUMA topology
+    
+    NODE="$1"
+    
+    if [ -z "$NODE" ]; then
+      echo "Usage: $0 <node-name>"
+      exit 1
+    fi
+    
+    echo "Labeling node $NODE with NUMA topology..."
+    
+    # Number of NUMA nodes
+    kubectl label node $NODE numa.kubenexus.io/node-count=2 --overwrite
+    
+    # NUMA node 0 (socket 0)
+    kubectl label node $NODE \
+      numa.kubenexus.io/node-0-cpus="0-15,32-47" \
+      numa.kubenexus.io/node-0-memory="68719476736" \
+      numa.kubenexus.io/node-0-bandwidth="102400" \
+      numa.kubenexus.io/node-0-distance-0="10" \
+      numa.kubenexus.io/node-0-distance-1="20" \
+      --overwrite
+    
+    # NUMA node 1 (socket 1)
+    kubectl label node $NODE \
+      numa.kubenexus.io/node-1-cpus="16-31,48-63" \
+      numa.kubenexus.io/node-1-memory="68719476736" \
+      numa.kubenexus.io/node-1-bandwidth="102400" \
+      numa.kubenexus.io/node-1-distance-0="20" \
+      numa.kubenexus.io/node-1-distance-1="10" \
+      --overwrite
+    
+    echo "Done! Node $NODE labeled with NUMA topology"
+    
+  label-4-socket-server.sh: |
+    #!/bin/bash
+    # Label a 4-socket server with NUMA topology
+    
+    NODE="$1"
+    
+    if [ -z "$NODE" ]; then
+      echo "Usage: $0 <node-name>"
+      exit 1
+    fi
+    
+    echo "Labeling node $NODE with 4-socket NUMA topology..."
+    
+    kubectl label node $NODE numa.kubenexus.io/node-count=4 --overwrite
+    
+    # NUMA node 0
+    kubectl label node $NODE \
+      numa.kubenexus.io/node-0-cpus="0-7,32-39" \
+      numa.kubenexus.io/node-0-memory="34359738368" \
+      numa.kubenexus.io/node-0-bandwidth="51200" \
+      numa.kubenexus.io/node-0-distance-0="10" \
+      numa.kubenexus.io/node-0-distance-1="20" \
+      numa.kubenexus.io/node-0-distance-2="30" \
+      numa.kubenexus.io/node-0-distance-3="30" \
+      --overwrite
+    
+    # NUMA nodes 1-3 (similar pattern)
+    # ... add remaining nodes
+    
+    echo "Done! Node $NODE labeled with 4-socket NUMA topology"
