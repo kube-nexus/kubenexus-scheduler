@@ -66,14 +66,14 @@ func ClassifyPod(pod *v1.Pod) Type {
 
 	// Heuristics: Check common batch workload labels
 	batchIndicators := []string{
-		"spark-role",                    // Apache Spark
-		"spark-app-id",                  // Apache Spark
-		"tf-replica-type",               // TensorFlow
-		"pytorch-replica-type",          // PyTorch
-		"mpi-job-role",                  // MPI jobs
-		"ray.io/node-type",              // Ray
-		"kubeflow.org/component",        // Kubeflow
-		"batch.kubernetes.io/job-name",  // Kubernetes batch jobs
+		"spark-role",                   // Apache Spark
+		"spark-app-id",                 // Apache Spark
+		"tf-replica-type",              // TensorFlow
+		"pytorch-replica-type",         // PyTorch
+		"mpi-job-role",                 // MPI jobs
+		"ray.io/node-type",             // Ray
+		"kubeflow.org/component",       // Kubeflow
+		"batch.kubernetes.io/job-name", // Kubernetes batch jobs
 	}
 
 	for _, indicator := range batchIndicators {

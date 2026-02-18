@@ -1,0 +1,34 @@
+# .gitattributes
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Go source files
+*.go text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+
+# YAML files
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Markdown files
+*.md text eol=lf
+
+# Makefiles
+Makefile text eol=lf
+
+# Git configuration files
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Dockerfile
+Dockerfile text eol=lf
+
+# Documentation
+*.txt text eol=lf
+
+# Exclude files from export
+.github export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore

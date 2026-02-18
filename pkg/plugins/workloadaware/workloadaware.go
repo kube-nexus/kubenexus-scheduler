@@ -29,13 +29,13 @@ import (
 
 // WorkloadAware implements workload-aware scoring that adapts its strategy based on pod type:
 //
-// - Batch workloads (ML training, Spark, data processing):
-//   Uses BIN PACKING strategy - prefers fuller nodes to co-locate batch jobs.
-//   Benefits: Reduced network latency, better resource utilization, leaves empty nodes for services.
+//   - Batch workloads (ML training, Spark, data processing):
+//     Uses BIN PACKING strategy - prefers fuller nodes to co-locate batch jobs.
+//     Benefits: Reduced network latency, better resource utilization, leaves empty nodes for services.
 //
-// - Service workloads (web apps, APIs, microservices):
-//   Uses SPREADING strategy - prefers emptier nodes to distribute services.
-//   Benefits: High availability, fault tolerance, even load distribution across cluster.
+//   - Service workloads (web apps, APIs, microservices):
+//     Uses SPREADING strategy - prefers emptier nodes to distribute services.
+//     Benefits: High availability, fault tolerance, even load distribution across cluster.
 //
 // This adaptive approach optimizes cluster efficiency while maintaining service reliability.
 type WorkloadAware struct {
