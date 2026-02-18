@@ -32,7 +32,7 @@ func TestWorkloadAwareConstants(t *testing.T) {
 	if Name != "WorkloadAwareScoring" {
 		t.Errorf("Expected Name to be 'WorkloadAwareScoring', got %s", Name)
 	}
-	
+
 	if MaxNodeScore != 100 {
 		t.Errorf("Expected MaxNodeScore to be 100, got %d", MaxNodeScore)
 	}

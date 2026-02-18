@@ -36,7 +36,7 @@ func TestNUMATopologyConstants(t *testing.T) {
 	if Name != "NUMATopology" {
 		t.Errorf("Expected Name to be 'NUMATopology', got %s", Name)
 	}
-	
+
 	if MaxNodeScore != 100 {
 		t.Errorf("Expected MaxNodeScore to be 100, got %d", MaxNodeScore)
 	}
@@ -170,14 +170,14 @@ func TestParseCPUList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseCPUList(tt.cpuList)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
@@ -276,11 +276,11 @@ func TestGetPodResourceRequests(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cpu, memory := plugin.getPodResourceRequests(tt.pod)
-			
+
 			if cpu != tt.expectedCPU {
 				t.Errorf("CPU mismatch: got %d, want %d", cpu, tt.expectedCPU)
 			}
-			
+
 			if memory != tt.expectedMemory {
 				t.Errorf("Memory mismatch: got %d, want %d", memory, tt.expectedMemory)
 			}
@@ -292,9 +292,9 @@ func TestParseNUMATopology(t *testing.T) {
 	plugin := &NUMATopology{}
 
 	tests := []struct {
-		name        string
-		node        *v1.Node
-		expectError bool
+		name          string
+		node          *v1.Node
+		expectError   bool
 		expectedCount int
 	}{
 		{
@@ -303,11 +303,11 @@ func TestParseNUMATopology(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-node",
 					Labels: map[string]string{
-						LabelNUMANodeCount:                    "2",
-						"numa.kubenexus.io/node-0-cpus":      "0-15",
-						"numa.kubenexus.io/node-0-memory":    "68719476736",
-						"numa.kubenexus.io/node-1-cpus":      "16-31",
-						"numa.kubenexus.io/node-1-memory":    "68719476736",
+						LabelNUMANodeCount:                "2",
+						"numa.kubenexus.io/node-0-cpus":   "0-15",
+						"numa.kubenexus.io/node-0-memory": "68719476736",
+						"numa.kubenexus.io/node-1-cpus":   "16-31",
+						"numa.kubenexus.io/node-1-memory": "68719476736",
 					},
 				},
 			},
@@ -339,14 +339,14 @@ func TestParseNUMATopology(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := plugin.parseNUMATopology(tt.node)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return

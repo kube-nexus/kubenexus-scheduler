@@ -32,11 +32,11 @@ func TestTopologySpreadConstants(t *testing.T) {
 	if Name != "TopologySpreadScoring" {
 		t.Errorf("Expected Name to be 'TopologySpreadScoring', got %s", Name)
 	}
-	
+
 	if ZoneLabel != "topology.kubernetes.io/zone" {
 		t.Errorf("Expected ZoneLabel to be 'topology.kubernetes.io/zone', got %s", ZoneLabel)
 	}
-	
+
 	if MaxScore != 100 {
 		t.Errorf("Expected MaxScore to be 100, got %d", MaxScore)
 	}

@@ -33,11 +33,11 @@ func TestConstants(t *testing.T) {
 	if Name != "Coscheduling" {
 		t.Errorf("Expected Name constant to be 'Coscheduling', got %s", Name)
 	}
-	
+
 	if PodGroupName != "pod-group.scheduling.sigs.k8s.io/name" {
 		t.Errorf("Unexpected PodGroupName constant: %s", PodGroupName)
 	}
-	
+
 	if PodGroupMinAvailable != "pod-group.scheduling.sigs.k8s.io/min-available" {
 		t.Errorf("Unexpected PodGroupMinAvailable constant: %s", PodGroupMinAvailable)
 	}

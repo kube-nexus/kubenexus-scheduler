@@ -128,8 +128,8 @@ func TestGetNUMAAffinityPreferences(t *testing.T) {
 	plugin := &NUMATopology{}
 
 	tests := []struct {
-		name             string
-		pod              *v1.Pod
+		name              string
+		pod               *v1.Pod
 		expectedPreferred []int
 		expectedAvoided   []int
 	}{
@@ -183,11 +183,11 @@ func TestGetNUMAAffinityPreferences(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			preferred, avoided := plugin.getNUMAAffinityPreferences(tt.pod)
-			
+
 			if len(preferred) != len(tt.expectedPreferred) {
 				t.Errorf("preferred length = %d, want %d", len(preferred), len(tt.expectedPreferred))
 			}
-			
+
 			if len(avoided) != len(tt.expectedAvoided) {
 				t.Errorf("avoided length = %d, want %d", len(avoided), len(tt.expectedAvoided))
 			}
@@ -231,11 +231,11 @@ func TestParseNUMAIDList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseNUMAIDList(tt.input)
-			
+
 			if len(result) != len(tt.expected) {
 				t.Errorf("parseNUMAIDList() length = %d, want %d", len(result), len(tt.expected))
 			}
-			
+
 			for i := range result {
 				if result[i] != tt.expected[i] {
 					t.Errorf("parseNUMAIDList()[%d] = %d, want %d", i, result[i], tt.expected[i])
@@ -372,9 +372,9 @@ func TestCalculateNUMADistanceScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := plugin.calculateNUMADistanceScore(tt.numa, []NUMANode{tt.numa}, tt.pod)
-			
+
 			if result < tt.minScore || result > tt.maxScore {
-				t.Errorf("calculateNUMADistanceScore() = %.2f, want between %.2f and %.2f", 
+				t.Errorf("calculateNUMADistanceScore() = %.2f, want between %.2f and %.2f",
 					result, tt.minScore, tt.maxScore)
 			}
 		})
@@ -522,7 +522,7 @@ func TestCalculateGangAffinityScore(t *testing.T) {
 			tt.setup()
 
 			result := plugin.calculateGangAffinityScore(tt.pod, tt.numa, node)
-			
+
 			if result != tt.expected {
 				t.Errorf("calculateGangAffinityScore() = %.2f, want %.2f", result, tt.expected)
 			}
@@ -645,7 +645,7 @@ func TestAdvancedNUMAConstants(t *testing.T) {
 
 func TestScoringWeights(t *testing.T) {
 	totalWeight := WeightNUMAFit + WeightMemoryBandwidth + WeightNUMADistance + WeightGangAffinity
-	
+
 	// Check weights sum to 1.0
 	if totalWeight != 1.0 {
 		t.Errorf("Total scoring weights = %.2f, want 1.0", totalWeight)
@@ -655,15 +655,15 @@ func TestScoringWeights(t *testing.T) {
 	if WeightNUMAFit != 0.40 {
 		t.Errorf("WeightNUMAFit = %.2f, want 0.40", WeightNUMAFit)
 	}
-	
+
 	if WeightMemoryBandwidth != 0.25 {
 		t.Errorf("WeightMemoryBandwidth = %.2f, want 0.25", WeightMemoryBandwidth)
 	}
-	
+
 	if WeightNUMADistance != 0.20 {
 		t.Errorf("WeightNUMADistance = %.2f, want 0.20", WeightNUMADistance)
 	}
-	
+
 	if WeightGangAffinity != 0.15 {
 		t.Errorf("WeightGangAffinity = %.2f, want 0.15", WeightGangAffinity)
 	}

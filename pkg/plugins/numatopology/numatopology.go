@@ -91,32 +91,32 @@ const (
 
 	// NUMA node topology labels (standard Kubernetes labels)
 	// See: https://kubernetes.io/docs/tasks/administer-cluster/topology-manager/
-	LabelNUMANodeCount = "numa.kubenexus.io/node-count"    // Number of NUMA nodes
-	LabelNUMACPUs      = "numa.kubenexus.io/cpus"          // CPUs per NUMA (e.g., "0-15,32-47")
-	LabelNUMAMemory    = "numa.kubenexus.io/memory"        // Memory per NUMA (bytes)
+	LabelNUMANodeCount = "numa.kubenexus.io/node-count" // Number of NUMA nodes
+	LabelNUMACPUs      = "numa.kubenexus.io/cpus"       // CPUs per NUMA (e.g., "0-15,32-47")
+	LabelNUMAMemory    = "numa.kubenexus.io/memory"     // Memory per NUMA (bytes)
 
 	// Pod annotations for NUMA policy
 	AnnotationNUMAPolicy = "scheduling.kubenexus.io/numa-policy"
-	
+
 	// ADVANCED: Gang scheduling support
-	AnnotationGangGroup = "scheduling.kubenexus.io/gang-group"           // Gang group name
+	AnnotationGangGroup      = "scheduling.kubenexus.io/gang-group"       // Gang group name
 	AnnotationGangNUMASpread = "scheduling.kubenexus.io/gang-numa-spread" // Gang NUMA spread policy
-	
+
 	// ADVANCED: NUMA affinity/anti-affinity
-	AnnotationNUMAAffinityNodeID = "scheduling.kubenexus.io/numa-affinity-node-id"    // Preferred NUMA node IDs (e.g., "0,1")
+	AnnotationNUMAAffinityNodeID     = "scheduling.kubenexus.io/numa-affinity-node-id"      // Preferred NUMA node IDs (e.g., "0,1")
 	AnnotationNUMAAntiAffinityNodeID = "scheduling.kubenexus.io/numa-anti-affinity-node-id" // Avoid NUMA node IDs
-	
+
 	// ADVANCED: Workload characteristics hints
-	AnnotationMemoryIntensive = "scheduling.kubenexus.io/memory-intensive" // "true" for memory-bandwidth critical workloads
-	AnnotationNUMADistance = "scheduling.kubenexus.io/numa-distance-weight" // Weight for NUMA distance (0-100)
+	AnnotationMemoryIntensive = "scheduling.kubenexus.io/memory-intensive"     // "true" for memory-bandwidth critical workloads
+	AnnotationNUMADistance    = "scheduling.kubenexus.io/numa-distance-weight" // Weight for NUMA distance (0-100)
 
 	// NUMA policies
-	NUMAPolicySingleNode  = "single-numa-node" // Pod must fit in one NUMA node (strict)
-	NUMAPolicyBestEffort  = "best-effort"      // Prefer single NUMA but allow split
-	NUMAPolicyNone        = "none"             // No NUMA awareness
+	NUMAPolicySingleNode = "single-numa-node" // Pod must fit in one NUMA node (strict)
+	NUMAPolicyBestEffort = "best-effort"      // Prefer single NUMA but allow split
+	NUMAPolicyNone       = "none"             // No NUMA awareness
 
 	// Gang NUMA spread policies
-	GangNUMASpreadPacked = "packed"     // Place gang members on same NUMA nodes (minimize inter-node traffic)
+	GangNUMASpreadPacked   = "packed"   // Place gang members on same NUMA nodes (minimize inter-node traffic)
 	GangNUMASpreadBalanced = "balanced" // Balance gang members across NUMA nodes
 	GangNUMASpreadIsolated = "isolated" // Each gang member gets dedicated NUMA node
 
@@ -125,30 +125,30 @@ const (
 
 	// MaxNodeScore is the maximum score a node can get.
 	MaxNodeScore = framework.MaxNodeScore
-	
+
 	// Scoring weights for advanced features
-	WeightNUMAFit = 0.40           // 40% weight for how well pod fits in NUMA
-	WeightMemoryBandwidth = 0.25   // 25% weight for memory bandwidth availability
-	WeightNUMADistance = 0.20      // 20% weight for NUMA distance/latency
-	WeightGangAffinity = 0.15      // 15% weight for gang member affinity
+	WeightNUMAFit         = 0.40 // 40% weight for how well pod fits in NUMA
+	WeightMemoryBandwidth = 0.25 // 25% weight for memory bandwidth availability
+	WeightNUMADistance    = 0.20 // 20% weight for NUMA distance/latency
+	WeightGangAffinity    = 0.15 // 15% weight for gang member affinity
 )
 
 // NUMANode represents a single NUMA node on a server
 type NUMANode struct {
-	ID              int              // NUMA node ID (0, 1, 2, ...)
-	CPUs            []int            // CPU IDs in this NUMA node
-	TotalMemory     int64            // Total memory in bytes
-	AvailableCPUs   int              // Available (unallocated) CPUs
-	AvailableMemory int64            // Available memory in bytes
-	Distance        map[int]int      // Distance to other NUMA nodes (node ID -> distance)
-	MemoryBandwidth int64            // Memory bandwidth in MB/s (optional)
+	ID              int         // NUMA node ID (0, 1, 2, ...)
+	CPUs            []int       // CPU IDs in this NUMA node
+	TotalMemory     int64       // Total memory in bytes
+	AvailableCPUs   int         // Available (unallocated) CPUs
+	AvailableMemory int64       // Available memory in bytes
+	Distance        map[int]int // Distance to other NUMA nodes (node ID -> distance)
+	MemoryBandwidth int64       // Memory bandwidth in MB/s (optional)
 }
 
 // GangNUMAState tracks NUMA placement decisions for gang members
 type GangNUMAState struct {
-	GangGroup        string           // Gang group name
-	AssignedMembers  map[string]int   // Pod name -> NUMA node ID
-	SpreadPolicy     string           // Gang NUMA spread policy
+	GangGroup       string         // Gang group name
+	AssignedMembers map[string]int // Pod name -> NUMA node ID
+	SpreadPolicy    string         // Gang NUMA spread policy
 }
 
 // NUMATopology implements NUMA-aware scheduling with advanced features
@@ -168,10 +168,10 @@ func (n *NUMATopology) Name() string {
 // This prevents cross-NUMA placement for performance-sensitive workloads.
 //
 // Algorithm:
-//   1. Check if pod requires NUMA awareness (batch/ML workload or explicit annotation)
-//   2. Parse node's NUMA topology from labels
-//   3. Check if pod's resource requests fit in ANY single NUMA node
-//   4. If yes → allow node; if no → reject node
+//  1. Check if pod requires NUMA awareness (batch/ML workload or explicit annotation)
+//  2. Parse node's NUMA topology from labels
+//  3. Check if pod's resource requests fit in ANY single NUMA node
+//  4. If yes → allow node; if no → reject node
 func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	node := nodeInfo.Node()
 	if node == nil {
@@ -180,7 +180,7 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 
 	// Check NUMA policy for this pod
 	policy := n.getNUMAPolicy(pod)
-	
+
 	if policy == NUMAPolicyNone {
 		// NUMA awareness disabled for this pod
 		klog.V(5).Infof("NUMATopology: pod %s/%s has NUMA policy 'none', skipping filter", pod.Namespace, pod.Name)
@@ -189,7 +189,7 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 
 	if policy == NUMAPolicyBestEffort {
 		// Best effort policy - don't filter, just score
-		klog.V(5).Infof("NUMATopology: pod %s/%s has best-effort NUMA policy, allowing node %s", 
+		klog.V(5).Infof("NUMATopology: pod %s/%s has best-effort NUMA policy, allowing node %s",
 			pod.Namespace, pod.Name, node.Name)
 		return framework.NewStatus(framework.Success, "")
 	}
@@ -223,20 +223,20 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 	// Pod cannot fit in any single NUMA node
 	reason := fmt.Sprintf("pod requires %d CPUs and %d bytes memory, but no single NUMA node has sufficient capacity on node %s",
 		podCPU, podMemory, node.Name)
-	
-	klog.V(3).Infof("NUMATopology: rejecting node %s for pod %s/%s: %s", 
+
+	klog.V(3).Infof("NUMATopology: rejecting node %s for pod %s/%s: %s",
 		node.Name, pod.Namespace, pod.Name, reason)
-	
+
 	return framework.NewStatus(framework.Unschedulable, reason)
 }
 
 // Score invoked at the score extension point.
 //
 // ADVANCED SCORING: Scores nodes based on multiple NUMA factors:
-//   1. NUMA Fit Quality (40%): How well pod fits in NUMA node
-//   2. Memory Bandwidth (25%): Available memory bandwidth for memory-intensive workloads
-//   3. NUMA Distance (20%): Inter-NUMA latency/distance (prefer local NUMA)
-//   4. Gang Affinity (15%): Co-location with gang members
+//  1. NUMA Fit Quality (40%): How well pod fits in NUMA node
+//  2. Memory Bandwidth (25%): Available memory bandwidth for memory-intensive workloads
+//  3. NUMA Distance (20%): Inter-NUMA latency/distance (prefer local NUMA)
+//  4. Gang Affinity (15%): Co-location with gang members
 //
 // Scoring algorithm:
 //   - Find best NUMA node(s) that can accommodate the pod
@@ -254,7 +254,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 
 	// Check NUMA policy
 	policy := n.getNUMAPolicy(pod)
-	
+
 	if policy == NUMAPolicyNone {
 		// No NUMA awareness, return neutral score
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
@@ -269,17 +269,17 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 
 	// Calculate pod requirements
 	podCPU, podMemory := n.getPodResourceRequests(pod)
-	
+
 	// Check if pod is memory-intensive
 	isMemoryIntensive := n.isMemoryIntensive(pod)
-	
+
 	// Get NUMA affinity preferences
 	preferredNUMAs, avoidNUMAs := n.getNUMAAffinityPreferences(pod)
 
 	// Find best NUMA node fit
 	var bestScore float64
 	bestNUMAID := -1
-	
+
 	// Component scores
 	var fitScore, memBandwidthScore, distanceScore, gangScore float64
 
@@ -288,7 +288,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 			// Pod doesn't fit in this NUMA node
 			continue
 		}
-		
+
 		// Skip if in avoid list
 		if n.isNUMAInList(numa.ID, avoidNUMAs) {
 			klog.V(5).Infof("Skipping NUMA node %d on %s due to anti-affinity", numa.ID, node.Name)
@@ -298,16 +298,16 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		// 1. NUMA FIT QUALITY (40%)
 		cpuUtilization := float64(podCPU) / float64(len(numa.CPUs)) * 100.0
 		memUtilization := float64(podMemory) / float64(numa.TotalMemory) * 100.0
-		
+
 		// Weighted average: 60% CPU, 40% memory
 		utilization := (cpuUtilization * 0.6) + (memUtilization * 0.4)
-		
+
 		// Optimal utilization: 50-70% (leaves room for growth, not too fragmented)
-		fitScore = 100.0 - math.Abs(utilization - 60.0)
+		fitScore = 100.0 - math.Abs(utilization-60.0)
 		if fitScore < 0 {
 			fitScore = 0
 		}
-		
+
 		// Boost if in preferred NUMA list
 		if n.isNUMAInList(numa.ID, preferredNUMAs) {
 			fitScore = math.Min(100.0, fitScore*1.2) // 20% boost
@@ -371,9 +371,9 @@ func (n *NUMATopology) ScoreExtensions() framework.ScoreExtensions {
 // getNUMAPolicy determines the NUMA policy for a pod.
 //
 // Priority:
-//   1. Explicit annotation on pod
-//   2. Workload type (batch/ML → single-numa-node, service → none)
-//   3. Default: best-effort
+//  1. Explicit annotation on pod
+//  2. Workload type (batch/ML → single-numa-node, service → none)
+//  3. Default: best-effort
 func (n *NUMATopology) getNUMAPolicy(pod *v1.Pod) string {
 	// Check explicit annotation
 	if policy, exists := pod.Annotations[AnnotationNUMAPolicy]; exists {
@@ -388,7 +388,7 @@ func (n *NUMATopology) getNUMAPolicy(pod *v1.Pod) string {
 
 	// Infer from workload type
 	workloadType := workload.ClassifyPod(pod)
-	
+
 	if workloadType == workload.TypeBatch {
 		// Batch/ML workloads benefit most from NUMA locality
 		klog.V(5).Infof("NUMATopology: pod %s/%s classified as batch, using single-numa-node policy",
@@ -405,11 +405,12 @@ func (n *NUMATopology) getNUMAPolicy(pod *v1.Pod) string {
 // parseNUMATopology extracts NUMA topology information from node labels.
 //
 // Expected labels on nodes:
-//   numa.kubenexus.io/node-count: "2"
-//   numa.kubenexus.io/node-0-cpus: "0-15,32-47"
-//   numa.kubenexus.io/node-0-memory: "68719476736"  # bytes
-//   numa.kubenexus.io/node-1-cpus: "16-31,48-63"
-//   numa.kubenexus.io/node-1-memory: "68719476736"
+//
+//	numa.kubenexus.io/node-count: "2"
+//	numa.kubenexus.io/node-0-cpus: "0-15,32-47"
+//	numa.kubenexus.io/node-0-memory: "68719476736"  # bytes
+//	numa.kubenexus.io/node-1-cpus: "16-31,48-63"
+//	numa.kubenexus.io/node-1-memory: "68719476736"
 //
 // These labels should be set by a node labeler DaemonSet or kubelet.
 func (n *NUMATopology) parseNUMATopology(node *v1.Node) ([]NUMANode, error) {
@@ -498,11 +499,11 @@ func (n *NUMATopology) parseNUMATopology(node *v1.Node) ([]NUMANode, error) {
 // parseCPUList parses CPU list strings like "0-15,32-47" into slice of CPU IDs.
 func parseCPUList(cpuList string) ([]int, error) {
 	var cpus []int
-	
+
 	ranges := strings.Split(cpuList, ",")
 	for _, r := range ranges {
 		parts := strings.Split(strings.TrimSpace(r), "-")
-		
+
 		if len(parts) == 1 {
 			// Single CPU
 			cpu, err := strconv.Atoi(parts[0])
@@ -527,7 +528,7 @@ func parseCPUList(cpuList string) ([]int, error) {
 			return nil, fmt.Errorf("invalid CPU range: %s", r)
 		}
 	}
-	
+
 	return cpus, nil
 }
 
@@ -656,10 +657,10 @@ func (n *NUMATopology) calculateNUMADistanceScore(numa NUMANode, allNUMAs []NUMA
 	}
 
 	avgDistance := float64(totalDistance) / float64(count)
-	
+
 	// Typical NUMA distances: 10 (local), 20-21 (adjacent), 30-31 (far)
 	// Score: 100 for distance 10, decreasing for higher distances
-	score := 100.0 - (avgDistance - 10.0) * 5.0 * distanceWeight
+	score := 100.0 - (avgDistance-10.0)*5.0*distanceWeight
 	if score < 0 {
 		score = 0
 	}
@@ -754,14 +755,14 @@ func (n *NUMATopology) recordGangPlacement(pod *v1.Pod, numaID int, node *v1.Nod
 			GangGroup:       gangGroup,
 			AssignedMembers: make(map[string]int),
 		}
-		
+
 		// Get spread policy
 		if policy, exists := pod.Annotations[AnnotationGangNUMASpread]; exists {
 			gangState.SpreadPolicy = policy
 		} else {
 			gangState.SpreadPolicy = GangNUMASpreadPacked
 		}
-		
+
 		n.gangState[gangGroup] = gangState
 	}
 

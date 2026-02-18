@@ -2,6 +2,9 @@
 /bin/
 /_output/
 /_artifacts/
+*.test
+*.out
+coverage.txt
 
 # used for the code generators only
 /vendor/

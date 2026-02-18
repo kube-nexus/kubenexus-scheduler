@@ -29,10 +29,10 @@ import (
 // TopologySpread implements zone-aware pod spreading for high availability.
 //
 // Strategy:
-// - Service workloads: Strongly prefers spreading pods across availability zones
-//   for fault tolerance and high availability.
-// - Batch workloads: Returns neutral score since co-location is more important
-//   than topology spreading for batch jobs.
+//   - Service workloads: Strongly prefers spreading pods across availability zones
+//     for fault tolerance and high availability.
+//   - Batch workloads: Returns neutral score since co-location is more important
+//     than topology spreading for batch jobs.
 //
 // This helps ensure service pods are distributed across failure domains while
 // allowing batch workloads to pack efficiently on fewer nodes.

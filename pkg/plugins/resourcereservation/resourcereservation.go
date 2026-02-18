@@ -100,7 +100,7 @@ func setConfigDefaults(config *rest.Config) error {
 	gv := v1alpha1.SchemeGroupVersion
 	config.GroupVersion = &gv
 	config.APIPath = "/apis"
-	
+
 	scheme := runtime.NewScheme()
 	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		return err
@@ -150,11 +150,11 @@ func (rr *ResourceReservation) Unreserve(ctx context.Context, state framework.Cy
 
 func newResourceReservation(driverNode string, driver *v1.Pod) *v1alpha1.ResourceReservation {
 	reservations := make(map[string]v1alpha1.Reservation, 1)
-	
+
 	// Extract resource requests from pod
 	cpu := resource.MustParse("1")
 	mem := resource.MustParse("750M")
-	
+
 	if len(driver.Spec.Containers) > 0 {
 		container := driver.Spec.Containers[0]
 		if c, ok := container.Resources.Requests[v1.ResourceCPU]; ok {

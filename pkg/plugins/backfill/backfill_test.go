@@ -35,7 +35,7 @@ func TestBackfillScoringConstants(t *testing.T) {
 	if Name != "BackfillScoring" {
 		t.Errorf("Expected Name to be 'BackfillScoring', got %s", Name)
 	}
-	
+
 	if BackfillPriorityThreshold != 100 {
 		t.Errorf("Expected BackfillPriorityThreshold to be 100, got %d", BackfillPriorityThreshold)
 	}
@@ -43,7 +43,7 @@ func TestBackfillScoringConstants(t *testing.T) {
 	if BackfillLabelKey != "scheduling.kubenexus.io/backfill" {
 		t.Errorf("Expected BackfillLabelKey to be 'scheduling.kubenexus.io/backfill', got %s", BackfillLabelKey)
 	}
-	
+
 	if MaxNodeScore != 100 {
 		t.Errorf("Expected MaxNodeScore to be 100, got %d", MaxNodeScore)
 	}
