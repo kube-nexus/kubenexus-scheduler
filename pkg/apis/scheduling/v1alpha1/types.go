@@ -45,10 +45,10 @@ type ResourceReservationSpec struct {
 type Reservation struct {
 	// Node is the name of the node where resources are reserved
 	Node string `json:"node"`
-	
+
 	// CPU is the amount of CPU reserved
 	CPU resource.Quantity `json:"cpu"`
-	
+
 	// Memory is the amount of memory reserved
 	Memory resource.Quantity `json:"memory"`
 }
@@ -72,7 +72,7 @@ type ResourceReservationList struct {
 const (
 	// AppIDLabel is the label key for application ID
 	AppIDLabel = "scheduling.kubenexus.io/app-id"
-	
+
 	// PodGroupLabel is the label key for pod group name
 	PodGroupLabel = "pod-group.scheduling.sigs.k8s.io/name"
 )

@@ -17,6 +17,7 @@ limitations under the License.
 package resourcereservation
 
 import (
+	"context"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -185,7 +186,7 @@ func TestNewResourceReservation_OwnerReference(t *testing.T) {
 
 func TestReserve_NilPod(t *testing.T) {
 	rr := &ResourceReservation{}
-	status := rr.Reserve(nil, nil, nil, "node-1")
+	status := rr.Reserve(context.TODO(), nil, nil, "node-1")
 
 	if status.IsSuccess() {
 		t.Error("Reserve should fail with nil pod")
@@ -199,7 +200,6 @@ func TestReserve_NilPod(t *testing.T) {
 func TestUnreserve_NilPod(t *testing.T) {
 	rr := &ResourceReservation{}
 	// Should not panic with nil pod
-	rr.Unreserve(nil, nil, nil, "node-1")
+	rr.Unreserve(context.TODO(), nil, nil, "node-1")
 	// If we get here without panic, test passes
 }
-

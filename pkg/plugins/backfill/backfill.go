@@ -42,10 +42,10 @@ import (
 // evict these backfill pods to make room.
 //
 // BENEFITS:
-//   1. Better resource utilization - no wasted capacity
-//   2. Faster processing of low-priority batch jobs
-//   3. No impact on high-priority workloads (they can preempt backfill pods)
-//   4. Works seamlessly with existing GangPreemption plugin
+//  1. Better resource utilization - no wasted capacity
+//  2. Faster processing of low-priority batch jobs
+//  3. No impact on high-priority workloads (they can preempt backfill pods)
+//  4. Works seamlessly with existing GangPreemption plugin
 //
 // HOW IT WORKS:
 //   - Identifies pods marked as "backfill eligible" (via PriorityClass or labels)
@@ -54,16 +54,17 @@ import (
 //   - Result: Backfill pods naturally fill gaps in cluster capacity
 //
 // EXAMPLE:
-//   Node A: 80% utilized (20% idle)
-//   Node B: 20% utilized (80% idle)
 //
-//   Regular Pod:
-//     - Node A: score = 80 (prefer fuller nodes for co-location)
-//     - Node B: score = 20
+//	Node A: 80% utilized (20% idle)
+//	Node B: 20% utilized (80% idle)
 //
-//   Backfill Pod:
-//     - Node A: score = 20 (avoid disrupting existing workloads)
-//     - Node B: score = 80 (use the idle capacity!)
+//	Regular Pod:
+//	  - Node A: score = 80 (prefer fuller nodes for co-location)
+//	  - Node B: score = 20
+//
+//	Backfill Pod:
+//	  - Node A: score = 20 (avoid disrupting existing workloads)
+//	  - Node B: score = 80 (use the idle capacity!)
 type BackfillScoring struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister
@@ -131,7 +132,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	requestedCPU := float64(0)
 	requestedMemory := float64(0)
-	
+
 	// Only sum pods that are scheduled on THIS specific node
 	for _, podOnNode := range allPods {
 		if podOnNode.Spec.NodeName == node.Name {
@@ -210,9 +211,9 @@ func (b *BackfillScoring) ScoreExtensions() framework.ScoreExtensions {
 // isBackfillEligible determines if a pod is eligible for backfill scheduling.
 //
 // A pod is considered backfill-eligible if:
-//   1. It has an explicit backfill label: scheduling.kubenexus.io/backfill: "true"
-//   OR
-//   2. It has a low priority (priority <= BackfillPriorityThreshold)
+//  1. It has an explicit backfill label: scheduling.kubenexus.io/backfill: "true"
+//     OR
+//  2. It has a low priority (priority <= BackfillPriorityThreshold)
 //
 // Backfill-eligible pods are interruptible and can be preempted by higher-priority
 // workloads via the GangPreemption plugin.
@@ -220,20 +221,22 @@ func (b *BackfillScoring) ScoreExtensions() framework.ScoreExtensions {
 // CONFIGURATION EXAMPLE:
 //
 // Method 1: Using PriorityClass
-//   apiVersion: scheduling.k8s.io/v1
-//   kind: PriorityClass
-//   metadata:
-//     name: backfill
-//   value: 100
-//   preemptionPolicy: PreemptLowerPriority
-//   description: "Low priority for backfill/interruptible workloads"
+//
+//	apiVersion: scheduling.k8s.io/v1
+//	kind: PriorityClass
+//	metadata:
+//	  name: backfill
+//	value: 100
+//	preemptionPolicy: PreemptLowerPriority
+//	description: "Low priority for backfill/interruptible workloads"
 //
 // Method 2: Using Label
-//   apiVersion: v1
-//   kind: Pod
-//   metadata:
-//     labels:
-//       scheduling.kubenexus.io/backfill: "true"
+//
+//	apiVersion: v1
+//	kind: Pod
+//	metadata:
+//	  labels:
+//	    scheduling.kubenexus.io/backfill: "true"
 func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 	// Check explicit backfill label first (takes precedence)
 	if backfillLabel, exists := pod.Labels[BackfillLabelKey]; exists && backfillLabel == "true" {
@@ -255,7 +258,7 @@ func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 // New initializes a new BackfillScoring plugin and returns it.
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
-	
+
 	klog.V(3).Infof("BackfillScoring plugin initialized")
 	return &BackfillScoring{
 		handle:    handle,

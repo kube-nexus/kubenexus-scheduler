@@ -28,30 +28,30 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
-	
+
 	"sigs.k8s.io/scheduler-plugins/pkg/utils"
 )
 
 // Coscheduling implements intelligent workload-aware scheduling with support for:
 //
-// 1. GANG SCHEDULING (All-or-Nothing):
-//    For distributed workloads (ML training, Spark, MPI) where ALL pods in a
-//    group must be scheduled together atomically. Pods wait for each other.
-//    Triggered by: pod-group.scheduling.kubenexus.io/name label + minAvailable > 1
+//  1. GANG SCHEDULING (All-or-Nothing):
+//     For distributed workloads (ML training, Spark, MPI) where ALL pods in a
+//     group must be scheduled together atomically. Pods wait for each other.
+//     Triggered by: pod-group.scheduling.kubenexus.io/name label + minAvailable > 1
 //
-//    Example: 8-worker ML training job - ALL 8 pods must be ready before any start.
+//     Example: 8-worker ML training job - ALL 8 pods must be ready before any start.
 //
-// 2. INDEPENDENT SCHEDULING:
-//    For stateless services (APIs, web apps, databases) where each pod schedules
-//    independently for faster availability and rolling updates.
-//    Triggered by: No gang labels OR minAvailable <= 1
+//  2. INDEPENDENT SCHEDULING:
+//     For stateless services (APIs, web apps, databases) where each pod schedules
+//     independently for faster availability and rolling updates.
+//     Triggered by: No gang labels OR minAvailable <= 1
 //
-//    Example: API with 10 replicas - each pod starts as soon as resources available.
+//     Example: API with 10 replicas - each pod starts as soon as resources available.
 //
 // 3. INTELLIGENT QUEUE SORTING:
-//    - Prevents starvation (age-based priority boost after 60s)
-//    - Respects pod priorities
-//    - FIFO fairness within same priority
+//   - Prevents starvation (age-based priority boost after 60s)
+//   - Respects pod priorities
+//   - FIFO fairness within same priority
 //
 // The plugin automatically detects which mode to use based on pod labels.
 // Services get fast, independent scheduling. Batch gets gang semantics.
@@ -63,19 +63,15 @@ type Coscheduling struct {
 	podGroupInfos sync.Map
 	// Metrics and monitoring
 	schedulingAttempts map[string]int
-	mu                 sync.RWMutex
 }
 
 // PodGroupInfo stores metadata about a pod group
 type PodGroupInfo struct {
-	name              string
-	namespace         string
-	minAvailable      int
-	timestamp         time.Time
-	scheduledPods     int
-	waitingPods       int
-	lastUpdateTime    time.Time
-	mu                sync.RWMutex
+	name           string
+	namespace      string
+	minAvailable   int
+	timestamp      time.Time
+	lastUpdateTime time.Time
 }
 
 var _ framework.QueueSortPlugin = &Coscheduling{}
@@ -89,22 +85,22 @@ const (
 	// - Gang scheduling (all-or-nothing for distributed workloads)
 	// - Independent scheduling (for stateless services)
 	Name = "Coscheduling"
-	
+
 	// PodGroupName labels a pod as part of a gang (pod group).
 	// Pods WITHOUT this label are scheduled independently (normal K8s behavior).
 	// Pods WITH this label may use gang scheduling based on minAvailable value.
 	PodGroupName = "pod-group.scheduling.sigs.k8s.io/name"
-	
+
 	// PodGroupMinAvailable specifies minimum pods needed for gang scheduling.
 	// - If minAvailable <= 1: Pod schedules independently (no gang, fast deployment)
 	// - If minAvailable > 1: Gang scheduling applies (all-or-nothing, waits for peers)
 	PodGroupMinAvailable = "pod-group.scheduling.sigs.k8s.io/min-available"
-	
+
 	// PermitWaitingTime is the wait timeout returned by Permit plugin.
 	// Pods in a gang will wait up to this duration for all members to be ready.
 	// After timeout, the entire gang is rejected and retried later.
 	PermitWaitingTime = 10 * time.Second
-	
+
 	// StarvationThreshold is the time after which a pod group gets priority boost.
 	// This prevents long-waiting gangs from being starved by newer high-priority work.
 	// After 60s of waiting, the gang gets bumped ahead in the queue.
@@ -120,7 +116,7 @@ func (cs *Coscheduling) Name() string {
 func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
 	podGroupManager := utils.NewPodGroupManager(podLister)
-	
+
 	return &Coscheduling{
 		frameworkHandle:    handle,
 		podLister:          podLister,
@@ -137,33 +133,33 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 func (cs *Coscheduling) Less(podInfo1 framework.QueuedPodInfo, podInfo2 framework.QueuedPodInfo) bool {
 	pod1 := podInfo1.GetPodInfo().GetPod()
 	pod2 := podInfo2.GetPodInfo().GetPod()
-	
+
 	klog.V(4).Infof("QueueSort: comparing pods %s/%s and %s/%s",
 		pod1.Namespace, pod1.Name,
 		pod2.Namespace, pod2.Name)
-	
+
 	pgInfo1 := cs.getPodGroupInfoFromQueued(podInfo1)
 	pgInfo2 := cs.getPodGroupInfoFromQueued(podInfo2)
-	
+
 	// 1. STARVATION PREVENTION: Boost priority if waiting too long
 	now := time.Now()
 	age1 := now.Sub(pgInfo1.timestamp)
 	age2 := now.Sub(pgInfo2.timestamp)
-	
+
 	starving1 := age1 > StarvationThreshold
 	starving2 := age2 > StarvationThreshold
-	
+
 	if starving1 && !starving2 {
 		klog.V(3).Infof("QueueSort: pod group %s/%s is starving (age: %v), boosting priority",
 			pod1.Namespace, pgInfo1.name, age1)
-		return true  // starving1 goes first
+		return true // starving1 goes first
 	}
 	if !starving1 && starving2 {
 		klog.V(3).Infof("QueueSort: pod group %s/%s is starving (age: %v), boosting priority",
 			pod2.Namespace, pgInfo2.name, age2)
-		return false  // starving2 goes first
+		return false // starving2 goes first
 	}
-	
+
 	// 2. PRIORITY: Compare base priorities
 	priority1 := int32(0)
 	priority2 := int32(0)
@@ -222,7 +218,7 @@ func (cs *Coscheduling) getPodGroupInfoFromQueued(queuedInfo framework.QueuedPod
 }
 
 // PreFilter validates that the pod group has enough pods before scheduling.
-// 
+//
 // FOR GANG SCHEDULING (minAvailable > 1):
 //   - Ensures all required pods exist before attempting to schedule any
 //   - Prevents partial gang scheduling that would waste resources
@@ -245,7 +241,7 @@ func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleStat
 	if total < minAvailable {
 		klog.V(3).Infof("PreFilter: podGroup %s/%s has %d pods, needs %d (pod: %s)",
 			p.Namespace, podGroupName, total, minAvailable, p.Name)
-		return nil, framework.NewStatus(framework.Unschedulable, 
+		return nil, framework.NewStatus(framework.Unschedulable,
 			fmt.Sprintf("pod group has %d pods, needs at least %d", total, minAvailable))
 	}
 
@@ -298,7 +294,7 @@ func (cs *Coscheduling) Permit(ctx context.Context, state framework.CycleState, 
 	// All required pods are here, allow the entire group
 	klog.V(3).Infof("Permit: podGroup %s/%s ready to schedule (%d/%d)",
 		namespace, podGroupName, current, minAvailable)
-	
+
 	cs.frameworkHandle.IterateOverWaitingPods(func(waitingPod framework.WaitingPod) {
 		if waitingPod.GetPod().Namespace == namespace {
 			waitingPodGroupName, _, _ := utils.GetPodGroupLabels(waitingPod.GetPod())
@@ -326,7 +322,7 @@ func (cs *Coscheduling) Unreserve(ctx context.Context, state framework.CycleStat
 	}
 
 	klog.V(3).Infof("Unreserve: rejecting pods in group %s/%s", p.Namespace, podGroupName)
-	
+
 	cs.frameworkHandle.IterateOverWaitingPods(func(waitingPod framework.WaitingPod) {
 		if waitingPod.GetPod().Namespace == p.Namespace {
 			waitingPodGroupName, _, _ := utils.GetPodGroupLabels(waitingPod.GetPod())

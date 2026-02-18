@@ -60,7 +60,7 @@ func TestResourceReservationDeepCopy(t *testing.T) {
 	reservation := original.Spec.Reservations["driver"]
 	reservation.Node = "node-2"
 	original.Spec.Reservations["driver"] = reservation
-	
+
 	if copied.Spec.Reservations["driver"].Node == "node-2" {
 		t.Error("DeepCopy is not deep - modification affected copy")
 	}
