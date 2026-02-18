@@ -33,7 +33,7 @@ Schedule pod groups atomically—all pods in a group start together or none at a
 **Perfect for:**
 - Distributed ML training (PyTorch DDP, TensorFlow, Horovod)
 - **Kubeflow Training Operator** (PyTorchJob, TFJob, MPIJob)
-- Apache Spark jobs (driver + executors)
+- **Spark Operator** (SparkApplication)
 - MPI applications
 - Ray clusters
 - Any multi-pod application requiring coordination
@@ -44,7 +44,9 @@ labels:
   pod-group.scheduling.kubenexus.io/min-available: "8"
 ```
 
-**Kubeflow Support**: Native integration with Kubeflow Training Operator CRDs. See [Kubeflow Integration Guide](docs/KUBEFLOW_INTEGRATION.md).
+**How it works:** Operators create pods from their CRDs (SparkApplication, PyTorchJob, etc.) with your specified labels. KubeNexus schedules these pods—no operator changes needed. Works with any operator out of the box.
+
+See: [Kubeflow Integration](docs/KUBEFLOW_INTEGRATION.md) | [Spark Integration](docs/SPARK_OPERATOR_INTEGRATION.md) | [How Operators Work](docs/OPERATOR_CRD_SUPPORT.md)
 
 ### 🧠 NUMA-Aware Scheduling
 
@@ -243,7 +245,7 @@ KubeNexus is implemented as a set of plugins for the Kubernetes Scheduler Framew
 **NUMA Topology Plugin**: Scores nodes based on topology affinity
 **Queue Management**: Prevents starvation and ensures fairness
 
-See [Architecture Documentation](docs/architecture.md) for details.
+For NUMA architecture details, see [NUMA Scheduling Guide](docs/NUMA_SCHEDULING_GUIDE.md).
 
 ---
 
@@ -313,10 +315,9 @@ Successfully tested with:
 | [**Spark Operator Integration**](docs/SPARK_OPERATOR_INTEGRATION.md) | Complete Spark on Kubernetes guide |
 | [**Operator CRD Support**](docs/OPERATOR_CRD_SUPPORT.md) | How KubeNexus works with any Kubernetes operator |
 | [**NUMA Scheduling Guide**](docs/NUMA_SCHEDULING_GUIDE.md) | Deep dive into NUMA-aware scheduling |
-| [**Quick Reference**](docs/NUMA_QUICK_REFERENCE.md) | Cheat sheet for common tasks |
+| [**NUMA Quick Reference**](docs/NUMA_QUICK_REFERENCE.md) | Cheat sheet for common tasks |
 | [**Scheduler Comparison**](docs/SCHEDULER_COMPARISON.md) | Detailed comparison vs alternatives |
 | [**Design Decisions**](docs/DESIGN_DECISIONS.md) | Architecture and API design rationale |
-| [**Architecture**](docs/architecture.md) | System design and plugin architecture |
 
 ---
 

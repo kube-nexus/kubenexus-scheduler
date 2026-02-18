@@ -508,7 +508,9 @@ labels:
 ## Additional Resources
 
 - **Main README:** [../README.md](../README.md) - Installation & quick start
-- **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) - System design
+- **NUMA Scheduling Guide:** [NUMA_SCHEDULING_GUIDE.md](NUMA_SCHEDULING_GUIDE.md) - Deep dive into NUMA architecture
+- **Scheduler Comparison:** [SCHEDULER_COMPARISON.md](SCHEDULER_COMPARISON.md) - Detailed comparison with alternatives
+- **Design Decisions:** [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) - Architecture and API design rationale
 - **Contributing:** [../CONTRIBUTING.md](../CONTRIBUTING.md) - Development guide
 
 ---
