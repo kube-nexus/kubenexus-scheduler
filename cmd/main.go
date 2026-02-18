@@ -9,6 +9,7 @@ import (
 	backfill "sigs.k8s.io/scheduler-plugins/pkg/plugins/backfill"
 	coscheduling "sigs.k8s.io/scheduler-plugins/pkg/plugins/coscheduling"
 	gangpreemption "sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
+	numatopology "sigs.k8s.io/scheduler-plugins/pkg/plugins/numatopology"
 	resourcereservation "sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcereservation"
 	topologyspread "sigs.k8s.io/scheduler-plugins/pkg/plugins/topologyspread"
 	workloadaware "sigs.k8s.io/scheduler-plugins/pkg/plugins/workloadaware"
@@ -30,6 +31,9 @@ func main() {
 		
 		// Zone-aware topology spreading for high availability
 		app.WithPlugin(topologyspread.Name, topologyspread.New),
+		
+		// NUMA-aware scheduling for high-performance workloads
+		app.WithPlugin(numatopology.Name, numatopology.New),
 		
 		// Backfill scoring: fills idle capacity with low-priority interruptible pods
 		app.WithPlugin(backfill.Name, backfill.New),

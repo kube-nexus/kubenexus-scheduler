@@ -34,6 +34,7 @@ profiles:
     filter:
       enabled:
         - name: Coscheduling
+        - name: NUMATopology            # NUMA-aware filtering for ML/batch workloads
       disabled:
         - name: "*"
     
@@ -47,6 +48,7 @@ profiles:
       enabled:
         - name: WorkloadAwareScoring   # Adaptive: bin packing for batch, spreading for services
         - name: BackfillScoring         # Opportunistic: fills idle capacity with low-priority pods
+        - name: NUMATopology            # NUMA-aware scoring for optimal memory bandwidth
         - name: TopologySpreadScoring   # Zone-aware spreading for high availability
         - name: Coscheduling            # Gang scheduling preferences
       disabled:
