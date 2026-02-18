@@ -32,6 +32,7 @@ Schedule pod groups atomically—all pods in a group start together or none at a
 
 **Perfect for:**
 - Distributed ML training (PyTorch DDP, TensorFlow, Horovod)
+- **Kubeflow Training Operator** (PyTorchJob, TFJob, MPIJob)
 - Apache Spark jobs (driver + executors)
 - MPI applications
 - Ray clusters
@@ -42,6 +43,8 @@ labels:
   pod-group.scheduling.kubenexus.io/name: "training-job"
   pod-group.scheduling.kubenexus.io/min-available: "8"
 ```
+
+**Kubeflow Support**: Native integration with Kubeflow Training Operator CRDs. See [Kubeflow Integration Guide](docs/KUBEFLOW_INTEGRATION.md).
 
 ### 🧠 NUMA-Aware Scheduling
 
@@ -306,9 +309,11 @@ Successfully tested with:
 | Document | Description |
 |----------|-------------|
 | [**User Guide**](docs/USER_GUIDE.md) | Complete guide with examples and troubleshooting |
+| [**Kubeflow Integration**](docs/KUBEFLOW_INTEGRATION.md) | Using KubeNexus with Kubeflow Training Operator |
 | [**NUMA Scheduling Guide**](docs/NUMA_SCHEDULING_GUIDE.md) | Deep dive into NUMA-aware scheduling |
 | [**Quick Reference**](docs/NUMA_QUICK_REFERENCE.md) | Cheat sheet for common tasks |
 | [**Scheduler Comparison**](docs/SCHEDULER_COMPARISON.md) | Detailed comparison vs alternatives |
+| [**Design Decisions**](docs/DESIGN_DECISIONS.md) | Architecture and API design rationale |
 | [**Architecture**](docs/architecture.md) | System design and plugin architecture |
 
 ---
