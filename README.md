@@ -310,6 +310,8 @@ Successfully tested with:
 |----------|-------------|
 | [**User Guide**](docs/USER_GUIDE.md) | Complete guide with examples and troubleshooting |
 | [**Kubeflow Integration**](docs/KUBEFLOW_INTEGRATION.md) | Using KubeNexus with Kubeflow Training Operator |
+| [**Spark Operator Integration**](docs/SPARK_OPERATOR_INTEGRATION.md) | Complete Spark on Kubernetes guide |
+| [**Operator CRD Support**](docs/OPERATOR_CRD_SUPPORT.md) | How KubeNexus works with any Kubernetes operator |
 | [**NUMA Scheduling Guide**](docs/NUMA_SCHEDULING_GUIDE.md) | Deep dive into NUMA-aware scheduling |
 | [**Quick Reference**](docs/NUMA_QUICK_REFERENCE.md) | Cheat sheet for common tasks |
 | [**Scheduler Comparison**](docs/SCHEDULER_COMPARISON.md) | Detailed comparison vs alternatives |
