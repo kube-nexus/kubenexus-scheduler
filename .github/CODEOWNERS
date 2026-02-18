@@ -1,0 +1,16 @@
+# Code owners for KubeNexus Scheduler
+# These owners will be automatically requested for review when someone opens a pull request
+
+# Default owners for everything in the repo
+* @gouthamreddykotapalle
+
+# Documentation
+/docs/ @gouthamreddykotapalle
+*.md @gouthamreddykotapalle
+
+# Core scheduling plugins
+/pkg/plugins/ @gouthamreddykotapalle
+
+# Deployment configurations
+/deploy/ @gouthamreddykotapalle
+/config/ @gouthamreddykotapalle
