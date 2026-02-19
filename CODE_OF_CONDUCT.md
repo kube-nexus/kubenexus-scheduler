@@ -59,8 +59,8 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-conduct@kubenexus.io.
+reported to the community leaders responsible for enforcement by opening a
+private issue on GitHub or contacting the repository maintainers.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

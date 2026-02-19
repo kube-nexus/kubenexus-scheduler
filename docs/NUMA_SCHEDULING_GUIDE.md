@@ -1,6 +1,8 @@
 # KubeNexus Advanced NUMA-Aware Scheduling - Complete Guide
 
-> **Production-ready NUMA scheduling for ML, HPC, and latency-sensitive workloads**
+> **NUMA-aware scheduling for ML, HPC, and latency-sensitive workloads**
+>
+> **Status**: Beta (v0.1.x) - Ready for testing and evaluation in dev/staging environments
 
 ## Table of Contents
 
@@ -872,8 +874,8 @@ KubeNexus provides **the most advanced NUMA-aware scheduling** of any Kubernetes
 ✅ NUMA distance awareness  
 ✅ Gang scheduling with 3 NUMA policies  
 ✅ Auto-detection of memory-intensive workloads  
-✅ Production-ready with comprehensive documentation  
+✅ Beta release with comprehensive documentation  
 
-**Performance:** 30-57% improvement for NUMA-sensitive workloads  
-**Status:** Production-ready  
+**Performance:** Design target of 30-57% improvement for NUMA-sensitive workloads (benchmarking needed)  
+**Status:** Beta (v0.1.x) - Ready for testing and evaluation  
 **Use Cases:** ML, HPC, In-Memory Databases, Latency-Sensitive Applications

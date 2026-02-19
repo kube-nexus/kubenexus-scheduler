@@ -4,10 +4,13 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://golang.org/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28+-326CE5?logo=kubernetes)](https://kubernetes.io/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)]()
 
-**A production-ready Kubernetes scheduler for modern workloads—from stateless microservices to batch jobs to GPU-intensive AI training.**
+**A Kubernetes scheduler for modern workloads—from stateless microservices to batch jobs to GPU-intensive AI training.**
 
-KubeNexus extends the Kubernetes scheduler with intelligent workload placement, gang scheduling, and NUMA topology awareness. Built on the native Scheduler Framework, it delivers enterprise-grade scheduling capabilities with minimal operational overhead.
+> **⚠️ Beta Status**: KubeNexus Scheduler is under active development (v0.1.x). It's ready for testing in dev/staging environments and suitable for early adopters. Production use should be carefully evaluated for your specific use case.
+
+KubeNexus extends the Kubernetes scheduler with intelligent workload placement, gang scheduling, and NUMA topology awareness. Built on the native Scheduler Framework, it delivers advanced scheduling capabilities with minimal operational overhead.
 
 ---
 
@@ -76,7 +79,7 @@ annotations:
 - **Priority-aware**: Respects Kubernetes pod priorities
 - **Deadlock resolution**: Smart preemption for gang scheduling
 
-### 🚀 Production-Ready
+### 🚀 Deployment-Ready Features
 
 - **High availability**: Built-in leader election for multi-replica deployments
 - **Zero dependencies**: No external databases or coordination services
@@ -91,7 +94,7 @@ annotations:
 
 ```bash
 # Deploy KubeNexus scheduler
-kubectl apply -f https://raw.githubusercontent.com/YOUR_ORG/kubenexus-scheduler/main/deploy/kubenexus-scheduler.yaml
+kubectl apply -f https://raw.githubusercontent.com/gouthamreddykotapalle/kubenexus-scheduler/main/deploy/kubenexus-scheduler.yaml
 
 # Verify deployment
 kubectl get pods -n kube-system -l app=kubenexus-scheduler
@@ -251,29 +254,33 @@ For NUMA architecture details, see [NUMA Scheduling Guide](docs/NUMA_SCHEDULING_
 
 ## Performance
 
-### Scheduling Latency
+> **Note**: Performance metrics below are design targets based on the Kubernetes Scheduler Framework. Actual performance in your environment may vary. We welcome benchmarking contributions!
+
+### Scheduling Latency (Target)
 
 | Workload Type | Pods | Latency (p50) | Latency (p99) |
 |---------------|------|---------------|---------------|
-| Stateless     | 1    | 5ms           | 15ms          |
-| Gang (8 pods) | 8    | 50ms          | 150ms         |
-| NUMA-aware    | 1    | 8ms           | 25ms          |
+| Stateless     | 1    | ~5ms          | ~15ms         |
+| Gang (8 pods) | 8    | ~50ms         | ~150ms        |
+| NUMA-aware    | 1    | ~8ms          | ~25ms         |
 
-### Resource Overhead
+### Resource Overhead (Estimated)
 
 | Metric | Value |
 |--------|-------|
 | Memory | ~50MB |
-| CPU    | <0.1 core (idle), <0.5 core (1000 pods/sec) |
+| CPU    | <0.1 core (idle), <0.5 core (high load) |
 | Storage | None (in-memory state only) |
 
-### Scalability
+### Scalability (Design Goals)
 
-Successfully tested with:
-- 1,000 nodes
-- 10,000 pods scheduled
-- 100 concurrent gang scheduling groups
+Designed to handle:
+- 1,000+ nodes
+- 10,000+ pods scheduled
+- 100+ concurrent gang scheduling groups
 - Sub-second gang formation time for groups up to 50 pods
+
+*Benchmark results and real-world performance data welcome—please share your findings!*
 
 ---
 
@@ -402,33 +409,37 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Roadmap
 
-### Current (v1.0)
+### Current (v0.1.x - Beta)
 - ✅ Gang scheduling with permit phase coordination
 - ✅ NUMA-aware scheduling with 4 policies
 - ✅ Starvation prevention and fairness
 - ✅ High availability support
+- ⏳ Comprehensive testing and benchmarking
+- ⏳ Production battle-testing
 
-### Planned (v1.5 - Q2 2026)
+### Planned (v0.5 - Mid 2026)
 - ⏳ Enhanced metrics and monitoring (Prometheus)
 - ⏳ Admission webhook for validation
 - ⏳ Helm chart for easier deployment
 - ⏳ Namespace-based priority configuration
+- ⏳ Real-world performance benchmarks
 
-### Future (v2.0 - Q4 2026)
+### Future (v1.0 - Late 2026)
 - 🔮 Multi-queue support for >5000 node clusters
 - 🔮 Advanced fair-share policies
 - 🔮 Dynamic resource reservation
 - 🔮 Integration with cluster autoscaler
+- 🔮 v1.0 stability guarantees and production SLA
 
-See [GitHub Issues](https://github.com/YOUR_ORG/kubenexus-scheduler/issues) for details and discussions.
+See [GitHub Issues](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues) for details and discussions.
 
 ---
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_ORG/kubenexus-scheduler/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_ORG/kubenexus-scheduler/discussions)
-- **Slack**: [#kubenexus](https://kubernetes.slack.com/messages/kubenexus) on Kubernetes Slack
+- **Issues**: [GitHub Issues](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/discussions)
+- **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md)
 
 ---
 
