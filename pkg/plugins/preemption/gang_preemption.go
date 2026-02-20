@@ -193,9 +193,10 @@ func (gp *GangPreemption) findPreemptionVictims(gangPod *v1.Pod, needs ResourceR
 
 		// Skip if same namespace and same pod group (don't preempt gang members)
 		if victimPod.Namespace == gangPod.Namespace {
-			if victimGroupName, _, _ := utils.GetPodGroupLabels(victimPod); victimGroupName != "" {
-				gangGroupName, _, _ := utils.GetPodGroupLabels(gangPod)
-				if victimGroupName == gangGroupName {
+			victimGroupName, _, err := utils.GetPodGroupLabels(victimPod)
+			if err == nil && victimGroupName != "" {
+				gangGroupName, _, err := utils.GetPodGroupLabels(gangPod)
+				if err == nil && victimGroupName == gangGroupName {
 					continue
 				}
 			}

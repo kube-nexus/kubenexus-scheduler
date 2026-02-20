@@ -64,7 +64,7 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	var err error
 
 	// Try to load from config file first (for local development)
-	if _, err := os.Stat("/opt/config-file"); err == nil {
+	if _, statErr := os.Stat("/opt/config-file"); statErr == nil {
 		kubeconfig, err = clientcmd.BuildConfigFromFlags("", "/opt/config-file")
 		if err != nil {
 			klog.V(3).Infof("error building config from file: %v", err)
@@ -80,8 +80,8 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	}
 
 	config := *kubeconfig
-	if err := setConfigDefaults(&config); err != nil {
-		return nil, err
+	if configErr := setConfigDefaults(&config); configErr != nil {
+		return nil, configErr
 	}
 
 	client, err := rest.RESTClientFor(&config)
