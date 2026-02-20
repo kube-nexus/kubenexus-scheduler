@@ -202,7 +202,7 @@ func createKindCluster() error {
 	_, filename, _, _ := runtime.Caller(0)
 	testDir := filepath.Dir(filename)
 	configPath := filepath.Join(testDir, "kind-config.yaml")
-	
+
 	cmd := exec.Command("kind", "create", "cluster",
 		"--name", "kubenexus-test",
 		"--config", configPath,
