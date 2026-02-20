@@ -229,6 +229,38 @@ spec:
 
 **Result**: All 4 pods (master + 3 workers) gang-scheduled together for PyTorch DistributedDataParallel training.
 
+### Example 4: Stateless Service (Standard Scheduling)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: default
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      schedulerName: kubenexus-scheduler
+      containers:
+      - name: api
+        image: myregistry/api-server:v1.0
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+```
+
+**Result**: Standard service pods get fast, efficient bin-packing. KubeNexus handles both AI/ML and regular workloads seamlessly.
+
 ---
 
 ## Use Cases
