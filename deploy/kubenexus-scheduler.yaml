@@ -75,8 +75,6 @@ data:
       leaderElect: true
       resourceName: kubenexus-scheduler
       resourceNamespace: kubenexus-system
-    clientConnection:
-      kubeconfig: ""
     profiles:
     - schedulerName: kubenexus-scheduler
       plugins:
