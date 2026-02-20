@@ -214,25 +214,16 @@ func createKindCluster() error {
 		return err
 	}
 
-	// Get kubeconfig for the Kind cluster
-	cmd = exec.Command("kind", "get", "kubeconfig", "--name", "kubenexus-test")
-	kubeconfigBytes, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get kubeconfig: %w", err)
+	// Export kubeconfig for the Kind cluster to default location
+	// This updates ~/.kube/config so kubectl commands work
+	cmd = exec.Command("kind", "export", "kubeconfig", "--name", "kubenexus-test")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to export kubeconfig: %w", err)
 	}
 
-	// Write kubeconfig to a temporary file
-	tmpKubeconfig := filepath.Join(os.TempDir(), "kubenexus-test-kubeconfig")
-	if err := os.WriteFile(tmpKubeconfig, kubeconfigBytes, 0600); err != nil {
-		return fmt.Errorf("failed to write kubeconfig: %w", err)
-	}
-
-	// Set KUBECONFIG environment variable
-	if err := os.Setenv("KUBECONFIG", tmpKubeconfig); err != nil {
-		return fmt.Errorf("failed to set KUBECONFIG: %w", err)
-	}
-
-	fmt.Printf("KUBECONFIG set to: %s\n", tmpKubeconfig)
+	fmt.Println("Kubeconfig exported to ~/.kube/config")
 	return nil
 }
 
