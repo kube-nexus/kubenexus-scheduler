@@ -249,7 +249,7 @@ metadata:
 ```
 
 ### KubeNexus Gang Scheduling
-Pod-group annotations:
+Pod-group labels:
 ```yaml
 apiVersion: v1
 kind: Pod

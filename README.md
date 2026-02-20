@@ -100,81 +100,134 @@ kubectl apply -f https://raw.githubusercontent.com/gouthamreddykotapalle/kubenex
 kubectl get pods -n kube-system -l app=kubenexus-scheduler
 ```
 
-### Example 1: Distributed Training (Gang Scheduling)
+### Example 1: Kubeflow TFJob (Distributed TensorFlow Training)
 
 ```yaml
-apiVersion: batch/v1
-kind: Job
+apiVersion: kubeflow.org/v1
+kind: TFJob
 metadata:
-  name: distributed-training
+  name: mnist-distributed
+  namespace: kubeflow
 spec:
-  parallelism: 8
-  completions: 8
-  template:
-    metadata:
-      labels:
-        pod-group.scheduling.kubenexus.io/name: "training-job"
-        pod-group.scheduling.kubenexus.io/min-available: "8"
-    spec:
-      schedulerName: kubenexus-scheduler
-      containers:
-      - name: worker
-        image: pytorch/pytorch:latest
-        resources:
-          requests:
-            cpu: "4"
-            memory: "16Gi"
-            nvidia.com/gpu: "1"
+  tfReplicaSpecs:
+    Worker:
+      replicas: 4
+      template:
+        metadata:
+          labels:
+            pod-group.scheduling.kubenexus.io/name: "mnist-training"
+            pod-group.scheduling.kubenexus.io/min-available: "5"  # 4 workers + 1 PS
+        spec:
+          schedulerName: kubenexus-scheduler
+          containers:
+          - name: tensorflow
+            image: tensorflow/tensorflow:latest-gpu
+            resources:
+              requests:
+                cpu: "8"
+                memory: "32Gi"
+                nvidia.com/gpu: "2"
+    PS:
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            pod-group.scheduling.kubenexus.io/name: "mnist-training"
+            pod-group.scheduling.kubenexus.io/min-available: "5"
+        spec:
+          schedulerName: kubenexus-scheduler
+          containers:
+          - name: tensorflow
+            image: tensorflow/tensorflow:latest
+            resources:
+              requests:
+                cpu: "4"
+                memory: "16Gi"
 ```
 
-**Result**: All 8 workers start simultaneously, preventing deadlock and resource waste.
+**Result**: All 4 workers + 1 parameter server start simultaneously, preventing deadlock. No operator code changes needed!
 
-### Example 2: GPU Training (NUMA-Aware)
+### Example 2: Spark Operator (Distributed Data Processing)
 
 ```yaml
-apiVersion: v1
-kind: Pod
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
 metadata:
-  name: ml-training
-  annotations:
-    numa.scheduling.kubenexus.io/policy: "single-numa"
-    numa.scheduling.kubenexus.io/resources: "cpu,memory,nvidia.com/gpu"
+  name: spark-pi
+  namespace: spark
 spec:
-  schedulerName: kubenexus-scheduler
-  containers:
-  - name: training
-    image: nvcr.io/nvidia/pytorch:latest
-    resources:
-      requests:
-        cpu: "16"
-        memory: "64Gi"
-        nvidia.com/gpu: "2"
+  type: Scala
+  mode: cluster
+  image: gcr.io/spark-operator/spark:v3.5.0
+  mainClass: org.apache.spark.examples.SparkPi
+  mainApplicationFile: local:///opt/spark/examples/jars/spark-examples.jar
+  sparkConf:
+    spark.kubernetes.scheduler.name: "kubenexus-scheduler"
+  driver:
+    labels:
+      pod-group.scheduling.kubenexus.io/name: "spark-pi"
+      pod-group.scheduling.kubenexus.io/min-available: "5"  # 1 driver + 4 executors
+    cores: 1
+    memory: "4g"
+    serviceAccount: spark
+  executor:
+    labels:
+      pod-group.scheduling.kubenexus.io/name: "spark-pi"
+      pod-group.scheduling.kubenexus.io/min-available: "5"
+    instances: 4
+    cores: 4
+    memory: "8g"
 ```
 
-**Result**: CPUs, memory, and GPUs allocated from same NUMA node for optimal performance.
+**Result**: Driver and all 4 executors are gang-scheduled together, preventing Spark job deadlocks in busy clusters.
 
-### Example 3: Stateless Service (Default Scheduling)
+### Example 3: PyTorchJob (Distributed Training)
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
 metadata:
-  name: api-server
+  name: pytorch-ddp-mnist
+  namespace: kubeflow
 spec:
-  replicas: 10
-  template:
-    spec:
-      schedulerName: kubenexus-scheduler
-      containers:
-      - name: api
-        image: my-api:latest
-        resources:
-          requests:
-            cpu: "500m"
-            memory: "1Gi"
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            pod-group.scheduling.kubenexus.io/name: "pytorch-job"
+            pod-group.scheduling.kubenexus.io/min-available: "4"  # 1 master + 3 workers
+        spec:
+          schedulerName: kubenexus-scheduler
+          containers:
+          - name: pytorch
+            image: pytorch/pytorch:latest-cuda
+            resources:
+              requests:
+                cpu: "16"
+                memory: "64Gi"
+                nvidia.com/gpu: "2"
+    Worker:
+      replicas: 3
+      template:
+        metadata:
+          labels:
+            pod-group.scheduling.kubenexus.io/name: "pytorch-job"
+            pod-group.scheduling.kubenexus.io/min-available: "4"
+        spec:
+          schedulerName: kubenexus-scheduler
+          containers:
+          - name: pytorch
+            image: pytorch/pytorch:latest-cuda
+            resources:
+              requests:
+                cpu: "16"
+                memory: "64Gi"
+                nvidia.com/gpu: "2"
 ```
 
-**Result**: Fast, efficient bin-packing with standard Kubernetes scheduling behavior.
+**Result**: All 4 pods (master + 3 workers) gang-scheduled together for PyTorch DistributedDataParallel training.
 
 ---
 
