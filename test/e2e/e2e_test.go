@@ -236,8 +236,12 @@ func setupClient() {
 }
 
 func deployScheduler() error {
+	// Get workspace root (two directories up from test/e2e)
+	_, filename, _, _ := runtime.Caller(0)
+	workspaceRoot := filepath.Join(filepath.Dir(filename), "..", "..")
 	// Build scheduler image
 	cmd := exec.Command("make", "docker-build")
+	cmd.Dir = workspaceRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -256,7 +260,7 @@ func deployScheduler() error {
 	}
 
 	// Apply deployment manifest
-	cmd = exec.Command("kubectl", "apply", "-f", "deploy/kubenexus-scheduler.yaml")
+	cmd = exec.Command("kubectl", "apply", "-f", filepath.Join(workspaceRoot, "deploy", "kubenexus-scheduler.yaml"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
