@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package workloadaware implements workload-aware scheduling.
 package workloadaware
 
 import (
@@ -28,44 +27,36 @@ import (
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
-// WorkloadAware implements workload-aware scoring that adapts its strategy based on pod type:
-//
-//   - Batch workloads (ML training, Spark, data processing):
-//     Uses BIN PACKING strategy - prefers fuller nodes to co-locate batch jobs.
-//     Benefits: Reduced network latency, better resource utilization, leaves empty nodes for services.
-//
-//   - Service workloads (web apps, APIs, microservices):
-//     Uses SPREADING strategy - prefers emptier nodes to distribute services.
-//     Benefits: High availability, fault tolerance, even load distribution across cluster.
-//
-// This adaptive approach optimizes cluster efficiency while maintaining service reliability.
-type WorkloadAware struct {
+// HybridScorePlugin implements workload-aware scoring:
+// - Batch workloads: Bin packing (prefer fuller nodes for co-location)
+// - Service workloads: Spreading (prefer emptier nodes for HA)
+type HybridScorePlugin struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister
 }
 
-var _ framework.ScorePlugin = &WorkloadAware{}
+var _ framework.ScorePlugin = &HybridScorePlugin{}
 
 const (
-	// Name is the name of the plugin used in the plugin registry and configurations.
-	Name = "WorkloadAwareScoring"
+	// HybridScoringName is the name of the plugin used in the plugin registry and configurations.
+	HybridScoringName = "HybridScoring"
 
 	// MaxNodeScore is the maximum score a node can get.
 	MaxNodeScore = framework.MaxNodeScore
 )
 
 // Name returns the name of the plugin.
-func (w *WorkloadAware) Name() string {
-	return Name
+func (h *HybridScorePlugin) Name() string {
+	return HybridScoringName
 }
 
 // Score invoked at the score extension point.
-func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+func (h *HybridScorePlugin) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	// Classify the workload
 	workloadType := workload.ClassifyPod(pod)
 
 	// Calculate node utilization (0-100%)
-	utilization := w.calculateNodeUtilization(nodeInfo)
+	utilization := h.calculateNodeUtilization(nodeInfo)
 
 	var score int64
 	switch workloadType {
@@ -96,13 +87,13 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 }
 
 // ScoreExtensions returns a ScoreExtensions interface if it implements one, or nil if not.
-func (w *WorkloadAware) ScoreExtensions() framework.ScoreExtensions {
+func (h *HybridScorePlugin) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
 // Considers both CPU and memory, weighted equally.
-func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
+func (h *HybridScorePlugin) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0
@@ -117,7 +108,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) fl
 	}
 
 	// Get all pods from the lister and filter by this node
-	allPods, err := w.podLister.List(nil)
+	allPods, err := h.podLister.List(nil)
 	if err != nil {
 		return 50.0 // Conservative default
 	}
@@ -153,7 +144,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) fl
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
 
-	return &WorkloadAware{
+	return &HybridScorePlugin{
 		handle:    handle,
 		podLister: podLister,
 	}, nil

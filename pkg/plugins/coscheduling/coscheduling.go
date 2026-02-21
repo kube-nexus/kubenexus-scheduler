@@ -183,15 +183,24 @@ func (cs *Coscheduling) getPodGroupInfoFromQueued(queuedInfo framework.QueuedPod
 
 // PreFilter validates that the pod group has enough pods before scheduling
 func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleState, p *v1.Pod, nodeInfos []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
+	klog.Infof("PreFilter CALLED for pod %s/%s with labels: %v", p.Namespace, p.Name, p.Labels)
+
 	podGroupName, minAvailable, err := utils.GetPodGroupLabels(p)
 	if err != nil {
+		klog.Errorf("PreFilter ERROR getting pod group labels for %s/%s: %v", p.Namespace, p.Name, err)
 		return nil, framework.NewStatus(framework.Error, err.Error())
 	}
+
+	klog.Infof("PreFilter: pod %s/%s has podGroupName=%s, minAvailable=%d", p.Namespace, p.Name, podGroupName, minAvailable)
+
 	if podGroupName == "" || minAvailable <= 1 {
+		klog.Infof("PreFilter: pod %s/%s is not part of a gang (name=%s, min=%d), allowing", p.Namespace, p.Name, podGroupName, minAvailable)
 		return nil, framework.NewStatus(framework.Success, "")
 	}
 
 	total := cs.calculateTotalPods(podGroupName, p.Namespace)
+	klog.Infof("PreFilter: podGroup %s/%s has %d pods, needs %d (pod: %s)", p.Namespace, podGroupName, total, minAvailable, p.Name)
+
 	if total < minAvailable {
 		klog.V(3).Infof("PreFilter: podGroup %s/%s has %d pods, needs %d (pod: %s)",
 			p.Namespace, podGroupName, total, minAvailable, p.Name)

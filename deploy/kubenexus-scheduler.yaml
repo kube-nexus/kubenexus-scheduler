@@ -17,7 +17,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch", "update", "patch"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["pods/status"]
   verbs: ["patch", "update"]
@@ -28,16 +28,22 @@ rules:
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["persistentvolumes"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["persistentvolumeclaims"]
+  resources: ["persistentvolumes", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["configmaps"]
   verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services", "replicationcontrollers", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: ["storage.k8s.io"]
-  resources: ["storageclasses", "csinodes"]
+  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["events"]
@@ -69,51 +75,51 @@ metadata:
   namespace: kubenexus-system
 data:
   config.yaml: |
-    apiVersion: kubescheduler.config.k8s.io/v1alpha2
+    apiVersion: kubescheduler.config.k8s.io/v1
     kind: KubeSchedulerConfiguration
     leaderElection:
-      leaderElect: true
+      leaderElect: false
       resourceName: kubenexus-scheduler
       resourceNamespace: kubenexus-system
+    clientConnection:
+      kubeconfig: ""
     profiles:
     - schedulerName: kubenexus-scheduler
       plugins:
+        preEnqueue:
+          disabled:
+            - name: DynamicResources
         queueSort:
           enabled:
             - name: Coscheduling
           disabled:
             - name: "*"
-        filter:
-          enabled:
-            - name: Coscheduling
         preFilter:
           enabled:
             - name: Coscheduling
-            - name: preExtender
-        preScore:
-          enabled:
-            - name: Coscheduling
+          disabled:
+            - name: DynamicResources
+        filter:
+          disabled:
+            - name: DynamicResources
+        postFilter:
+          disabled:
+            - name: DynamicResources
         score:
+          disabled:
+            - name: DynamicResources
+        reserve:
           enabled:
             - name: Coscheduling
+            - name: ResourceReservation
+          disabled:
+            - name: DynamicResources
+        preBind:
+          disabled:
+            - name: DynamicResources
         permit:
           enabled:
             - name: Coscheduling
-        reserve:
-          enabled:
-            - name: resourceReservation
-        preBind:
-          enabled:
-            - name: Coscheduling
-        bind:
-          enabled:
-            - name: Coscheduling
-          disabled:
-            - name: "*"
-        unReserve:
-          enabled:
-            - name: Coscheduling
-            - name: resourceReservation
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -135,12 +141,13 @@ spec:
       serviceAccountName: kubenexus-scheduler
       containers:
       - name: scheduler
-        image: kubenexus-scheduler:v0.1.0
-        imagePullPolicy: IfNotPresent
+        image: kubenexus-scheduler:latest
+        imagePullPolicy: Never
         command:
           - /opt/kubenexus-scheduler
           - --config=/etc/kubenexus/config.yaml
-          - --v=4
+          - --leader-elect=false
+          - --v=6
         volumeMounts:
         - name: config
           mountPath: /etc/kubenexus
@@ -155,13 +162,15 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 10251
+            port: 10259
+            scheme: HTTPS
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 10251
+            port: 10259
+            scheme: HTTPS
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:

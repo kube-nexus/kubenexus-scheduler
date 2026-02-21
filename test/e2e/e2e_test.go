@@ -87,11 +87,12 @@ func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
 
-	// Cleanup
-	if clusterCreated {
-		fmt.Println("Cleaning up Kind cluster...")
-		cleanupKindCluster()
-	}
+	// Cleanup - Disabled for debugging
+	//if clusterCreated {
+	//	fmt.Println("Cleaning up Kind cluster...")
+	//	cleanupKindCluster()
+	//}
+	fmt.Println("⚠️  Cluster left running for validation. Delete manually with: kind delete cluster --name kubenexus-test")
 
 	os.Exit(code)
 }

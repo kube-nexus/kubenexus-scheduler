@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package topologyspread implements topology-aware pod spreading.
 package topologyspread
 
 import (
@@ -27,25 +26,18 @@ import (
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
-// TopologySpread implements zone-aware pod spreading for high availability.
-//
-// Strategy:
-//   - Service workloads: Strongly prefers spreading pods across availability zones
-//     for fault tolerance and high availability.
-//   - Batch workloads: Returns neutral score since co-location is more important
-//     than topology spreading for batch jobs.
-//
-// This helps ensure service pods are distributed across failure domains while
-// allowing batch workloads to pack efficiently on fewer nodes.
-type TopologySpread struct {
+// TopologySpreadScorePlugin implements zone-aware spreading for high availability.
+// For service workloads, it strongly prefers spreading pods across failure domains (zones).
+// For batch workloads, topology is less critical (co-location is more important).
+type TopologySpreadScorePlugin struct {
 	handle framework.Handle
 }
 
-var _ framework.ScorePlugin = &TopologySpread{}
+var _ framework.ScorePlugin = &TopologySpreadScorePlugin{}
 
 const (
-	// Name is the name of the plugin used in the plugin registry and configurations.
-	Name = "TopologySpreadScoring"
+	// TopologyScoringName is the name of the plugin used in the plugin registry and configurations.
+	TopologyScoringName = "TopologyScoring"
 
 	// ZoneLabel is the standard Kubernetes zone label
 	ZoneLabel = "topology.kubernetes.io/zone"
@@ -55,13 +47,13 @@ const (
 )
 
 // Name returns the name of the plugin.
-func (t *TopologySpread) Name() string {
-	return Name
+func (t *TopologySpreadScorePlugin) Name() string {
+	return TopologyScoringName
 }
 
 // Score invoked at the score extension point.
 // Calculates a score based on how well the pod would be spread across zones.
-func (t *TopologySpread) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+func (t *TopologySpreadScorePlugin) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Error, "node is nil")
@@ -107,7 +99,7 @@ func (t *TopologySpread) Score(ctx context.Context, state framework.CycleState, 
 
 // calculateZoneDistribution counts nodes per zone as a proxy for pod distribution
 // This provides good spreading behavior without needing to iterate all pods
-func (t *TopologySpread) calculateZoneDistribution(pod *v1.Pod) map[string]int {
+func (t *TopologySpreadScorePlugin) calculateZoneDistribution(pod *v1.Pod) map[string]int {
 	distribution := make(map[string]int)
 
 	// Get all nodes
@@ -138,13 +130,13 @@ func (t *TopologySpread) calculateZoneDistribution(pod *v1.Pod) map[string]int {
 }
 
 // ScoreExtensions returns a ScoreExtensions interface if it implements one, or nil if not.
-func (t *TopologySpread) ScoreExtensions() framework.ScoreExtensions {
+func (t *TopologySpreadScorePlugin) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
-// New initializes a new plugin and returns it.
-func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	return &TopologySpread{
+// NewTopologySpreadScore initializes a new plugin and returns it.
+func NewTopologySpreadScore(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
+	return &TopologySpreadScorePlugin{
 		handle: handle,
 	}, nil
 }
