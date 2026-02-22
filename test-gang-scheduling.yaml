@@ -1,0 +1,82 @@
+---
+# Gang Scheduling Test: TensorFlow Training Job
+# This simulates a distributed ML training job where all workers must be scheduled together
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gang-test
+---
+# Parameter Server Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tf-ps-0
+  namespace: gang-test
+  labels:
+    app: tensorflow
+    role: ps
+    pod-group.scheduling.kubenexus.io/name: tf-training-job
+    pod-group.scheduling.kubenexus.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: tensorflow
+    image: tensorflow/tensorflow:latest
+    command: ["python", "-c", "import time; print('Parameter Server running...'); time.sleep(3600)"]
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+---
+# Worker Pod 1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tf-worker-0
+  namespace: gang-test
+  labels:
+    app: tensorflow
+    role: worker
+    pod-group.scheduling.kubenexus.io/name: tf-training-job
+    pod-group.scheduling.kubenexus.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: tensorflow
+    image: tensorflow/tensorflow:latest
+    command: ["python", "-c", "import time; print('Worker 0 running...'); time.sleep(3600)"]
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+---
+# Worker Pod 2
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tf-worker-1
+  namespace: gang-test
+  labels:
+    app: tensorflow
+    role: worker
+    pod-group.scheduling.kubenexus.io/name: tf-training-job
+    pod-group.scheduling.kubenexus.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: tensorflow
+    image: tensorflow/tensorflow:latest
+    command: ["python", "-c", "import time; print('Worker 1 running...'); time.sleep(3600)"]
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
