@@ -19,6 +19,8 @@ lint:
 	fi
 	@echo "Running go vet..."
 	go vet ./...
+	@echo "Running golangci-lint..."
+	golangci-lint run --timeout=5m ./...
 	@echo "All linting checks passed!"
 
 .PHONY: fmt

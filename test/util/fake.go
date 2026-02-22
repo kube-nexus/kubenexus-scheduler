@@ -72,7 +72,7 @@ func createNodeInfoMap(pods []*v1.Pod, nodes []*v1.Node) map[string]fwk.NodeInfo
 		}
 		nodeNameToInfo[nodeName].(*framework.NodeInfo).AddPod(pod) //nolint:errcheck // AddPod doesn't return error
 	}
-	
+
 	for _, node := range nodes {
 		if _, ok := nodeNameToInfo[node.Name]; !ok {
 			nodeNameToInfo[node.Name] = framework.NewNodeInfo()

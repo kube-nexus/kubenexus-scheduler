@@ -520,17 +520,17 @@ func TestScoreWithNoGPUNodes(t *testing.T) {
 		t.Fatalf("Failed to create plugin: %v", err)
 	}
 
-		scorePlugin, ok := plugin.(fwk.ScorePlugin)
-		if !ok {
-			t.Fatal("Plugin does not implement ScorePlugin interface")
-		}
+	scorePlugin, ok := plugin.(fwk.ScorePlugin)
+	if !ok {
+		t.Fatal("Plugin does not implement ScorePlugin interface")
+	}
 	state := framework.NewCycleState()
 
 	for _, node := range nodes {
-			nodeInfo, err := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
-			if err != nil {
-				t.Fatalf("Failed to get node %s: %v", node.Name, err)
-			}
+		nodeInfo, err := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
+		if err != nil {
+			t.Fatalf("Failed to get node %s: %v", node.Name, err)
+		}
 		score, status := scorePlugin.Score(context.Background(), state, pod, nodeInfo)
 		if !status.IsSuccess() {
 			t.Errorf("Score failed for node %s: %v", node.Name, status.AsError())
