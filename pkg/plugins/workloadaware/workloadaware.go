@@ -27,36 +27,36 @@ import (
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
-// HybridScorePlugin implements workload-aware scoring:
+// WorkloadAware implements workload-aware scoring:
 // - Batch workloads: Bin packing (prefer fuller nodes for co-location)
 // - Service workloads: Spreading (prefer emptier nodes for HA)
-type HybridScorePlugin struct {
+type WorkloadAware struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister
 }
 
-var _ framework.ScorePlugin = &HybridScorePlugin{}
+var _ framework.ScorePlugin = &WorkloadAware{}
 
 const (
-	// HybridScoringName is the name of the plugin used in the plugin registry and configurations.
-	HybridScoringName = "HybridScoring"
+	// Name is the name of the plugin used in the plugin registry and configurations.
+	Name = "WorkloadAwareScoring"
 
 	// MaxNodeScore is the maximum score a node can get.
 	MaxNodeScore = framework.MaxNodeScore
 )
 
 // Name returns the name of the plugin.
-func (h *HybridScorePlugin) Name() string {
-	return HybridScoringName
+func (w *WorkloadAware) Name() string {
+	return Name
 }
 
 // Score invoked at the score extension point.
-func (h *HybridScorePlugin) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	// Classify the workload
 	workloadType := workload.ClassifyPod(pod)
 
 	// Calculate node utilization (0-100%)
-	utilization := h.calculateNodeUtilization(nodeInfo)
+	utilization := w.calculateNodeUtilization(nodeInfo)
 
 	var score int64
 	switch workloadType {
@@ -87,13 +87,13 @@ func (h *HybridScorePlugin) Score(ctx context.Context, state framework.CycleStat
 }
 
 // ScoreExtensions returns a ScoreExtensions interface if it implements one, or nil if not.
-func (h *HybridScorePlugin) ScoreExtensions() framework.ScoreExtensions {
+func (w *WorkloadAware) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
 // Considers both CPU and memory, weighted equally.
-func (h *HybridScorePlugin) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
+func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0
@@ -108,7 +108,7 @@ func (h *HybridScorePlugin) calculateNodeUtilization(nodeInfo framework.NodeInfo
 	}
 
 	// Get all pods from the lister and filter by this node
-	allPods, err := h.podLister.List(nil)
+	allPods, err := w.podLister.List(nil)
 	if err != nil {
 		return 50.0 // Conservative default
 	}
@@ -144,7 +144,7 @@ func (h *HybridScorePlugin) calculateNodeUtilization(nodeInfo framework.NodeInfo
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
 
-	return &HybridScorePlugin{
+	return &WorkloadAware{
 		handle:    handle,
 		podLister: podLister,
 	}, nil
