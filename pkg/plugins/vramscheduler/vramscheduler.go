@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 )
 
 const (
@@ -70,18 +70,19 @@ type VRAMScheduler struct {
 	handle framework.Handle
 }
 
+// Ensure VRAMScheduler implements required interfaces
+var (
+	_ framework.ScorePlugin  = &VRAMScheduler{}
+	_ framework.FilterPlugin = &VRAMScheduler{}
+)
+
 // Name returns the plugin name
 func (v *VRAMScheduler) Name() string {
 	return Name
 }
 
 // Score calculates the score for scheduling a pod on a node based on VRAM requirements
-func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
-	nodeInfo, err := v.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
-	if err != nil {
-		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v", nodeName, err))
-	}
-
+func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Error, "node not found")
@@ -92,7 +93,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 	if vramRequest == 0 {
 		// No VRAM request - return neutral score
 		klog.V(5).InfoS("Pod has no VRAM request, scoring neutrally",
-			"pod", pod.Name, "namespace", pod.Namespace, "node", nodeName)
+			"pod", pod.Name, "namespace", pod.Namespace, "node", node.Name)
 		return ScoreAcceptableFit, framework.NewStatus(framework.Success)
 	}
 
@@ -101,7 +102,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 	if gpuVRAM == 0 {
 		// Node has no GPU or VRAM info
 		klog.V(5).InfoS("Node has no GPU VRAM information",
-			"node", nodeName, "pod", pod.Name)
+			"node", node.Name, "pod", pod.Name)
 		return ScoreInsufficientVRAM, framework.NewStatus(framework.Success)
 	}
 
@@ -122,7 +123,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 		if totalVRAMNeeded > totalAvailableVRAM {
 			klog.V(4).InfoS("Insufficient VRAM for pod",
 				"pod", pod.Name,
-				"node", nodeName,
+				"node", node.Name,
 				"vramNeeded", formatBytes(totalVRAMNeeded),
 				"vramPerGPU", formatBytes(totalVRAMPerGPU),
 				"gpusRequested", gpusRequested,
@@ -135,7 +136,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 		
 		klog.V(4).InfoS("Multi-GPU VRAM scheduling",
 			"pod", pod.Name,
-			"node", nodeName,
+			"node", node.Name,
 			"vramNeeded", formatBytes(totalVRAMNeeded),
 			"gpusRequested", gpusRequested,
 			"totalAvailable", formatBytes(totalAvailableVRAM),
@@ -156,7 +157,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 			score = 100
 		}
 		klog.V(5).InfoS("Applied high-end GPU bonus",
-			"pod", pod.Name, "node", nodeName, "finalScore", score)
+			"pod", pod.Name, "node", node.Name, "finalScore", score)
 	}
 
 	// Apply penalty for stranding VRAM (poor utilization)
@@ -167,7 +168,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 		}
 		klog.V(4).InfoS("Applied VRAM stranding penalty",
 			"pod", pod.Name,
-			"node", nodeName,
+			"node", node.Name,
 			"utilization", fmt.Sprintf("%.1f%%", utilizationRatio*100),
 			"strandedVRAM", formatBytes(totalVRAMPerGPU-totalVRAMNeeded),
 			"finalScore", score)
@@ -176,7 +177,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state *framework.CycleState, 
 	klog.V(4).InfoS("VRAM-aware scheduling score",
 		"pod", pod.Name,
 		"namespace", pod.Namespace,
-		"node", nodeName,
+		"node", node.Name,
 		"vramRequest", formatBytes(totalVRAMNeeded),
 		"gpuVRAM", formatBytes(totalVRAMPerGPU),
 		"gpuCount", gpuCount,
@@ -193,7 +194,7 @@ func (v *VRAMScheduler) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // Filter filters out nodes that don't have sufficient VRAM
-func (v *VRAMScheduler) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+func (v *VRAMScheduler) Filter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	node := nodeInfo.Node()
 	if node == nil {
 		return framework.NewStatus(framework.Error, "node not found")
@@ -329,29 +330,35 @@ func inferVRAMFromModel(gpuModel string) int64 {
 	model := strings.ToUpper(gpuModel)
 	
 	// Map of known GPU models to VRAM capacity (in bytes)
-	vramMap := map[string]int64{
-		"H100":      80 * 1024 * 1024 * 1024,  // 80 GiB
-		"H100-80GB": 80 * 1024 * 1024 * 1024,
-		"H200":      141 * 1024 * 1024 * 1024, // 141 GiB
-		"A100-80GB": 80 * 1024 * 1024 * 1024,
-		"A100":      40 * 1024 * 1024 * 1024,  // 40 GiB (base model)
-		"A100-40GB": 40 * 1024 * 1024 * 1024,
-		"A40":       48 * 1024 * 1024 * 1024,  // 48 GiB
-		"A30":       24 * 1024 * 1024 * 1024,  // 24 GiB
-		"L40S":      48 * 1024 * 1024 * 1024,  // 48 GiB
-		"L40":       48 * 1024 * 1024 * 1024,
-		"L4":        24 * 1024 * 1024 * 1024,  // 24 GiB
-		"T4":        16 * 1024 * 1024 * 1024,  // 16 GiB
-		"V100":      32 * 1024 * 1024 * 1024,  // 32 GiB
-		"V100-32GB": 32 * 1024 * 1024 * 1024,
-		"V100-16GB": 16 * 1024 * 1024 * 1024,
-		"RTX6000":   24 * 1024 * 1024 * 1024,  // 24 GiB
-		"RTX8000":   48 * 1024 * 1024 * 1024,  // 48 GiB
+	// Check specific models first, then fall back to base models
+	vramMap := []struct {
+		modelKey string
+		vram     int64
+	}{
+		// Specific models first (longest match wins)
+		{"H100-80GB", 80 * 1024 * 1024 * 1024},
+		{"H200", 141 * 1024 * 1024 * 1024},
+		{"H100", 80 * 1024 * 1024 * 1024},
+		{"A100-80GB", 80 * 1024 * 1024 * 1024},
+		{"A100-40GB", 40 * 1024 * 1024 * 1024},
+		{"A100", 40 * 1024 * 1024 * 1024},
+		{"L40S", 48 * 1024 * 1024 * 1024},  // Check L40S before L40
+		{"L40", 48 * 1024 * 1024 * 1024},
+		{"L4", 24 * 1024 * 1024 * 1024},
+		{"A40", 48 * 1024 * 1024 * 1024},
+		{"A30", 24 * 1024 * 1024 * 1024},
+		{"T4", 16 * 1024 * 1024 * 1024},
+		{"V100-32GB", 32 * 1024 * 1024 * 1024},
+		{"V100-16GB", 16 * 1024 * 1024 * 1024},
+		{"V100", 32 * 1024 * 1024 * 1024},
+		{"RTX8000", 48 * 1024 * 1024 * 1024},
+		{"RTX6000", 24 * 1024 * 1024 * 1024},
+		{"MI300", 192 * 1024 * 1024 * 1024}, // AMD MI300X
 	}
 
-	for modelKey, vram := range vramMap {
-		if strings.Contains(model, modelKey) {
-			return vram
+	for _, entry := range vramMap {
+		if strings.Contains(model, entry.modelKey) {
+			return entry.vram
 		}
 	}
 
