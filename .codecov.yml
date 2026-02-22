@@ -1,0 +1,53 @@
+# Codecov configuration for KubeNexus Scheduler
+# See: https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  status:
+    project:
+      default:
+        target: 70%          # Target overall coverage
+        threshold: 2%        # Allow 2% drop without failing
+        if_ci_failed: error  # Fail if CI fails
+    
+    patch:
+      default:
+        target: 80%          # New code should have higher coverage
+        threshold: 5%        # Allow some flexibility for new features
+
+  precision: 2
+  round: down
+  range: "60...90"          # Green at 90%, red at 60%
+
+# Ignore generated code and vendor
+ignore:
+  - "**/*_generated.go"
+  - "**/zz_generated.*.go"
+  - "**/*_test.go"
+  - "_output/**/*"
+  - "vendor/**/*"
+  - "hack/**/*"
+  - "test/e2e/**/*"        # E2E tests don't contribute to unit test coverage
+
+# Comment on PRs
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: no
+  require_head: yes
+
+# Flags for different test types
+flags:
+  unit:
+    paths:
+      - pkg/
+    carryforward: true
+  
+  integration:
+    paths:
+      - test/integration/
+    carryforward: true
+
+# Annotations for GitHub
+github_checks:
+  annotations: true

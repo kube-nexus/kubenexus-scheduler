@@ -52,8 +52,9 @@ func TestResourceReservationDeepCopy(t *testing.T) {
 		t.Fatal("DeepCopy returned nil")
 	}
 
-	if copied.Name != original.Name {
-		t.Errorf("Name mismatch: got %s, want %s", copied.Name, original.Name)
+	//nolint:staticcheck // QF1008: Explicit ObjectMeta access is clearer in tests
+	if copied.ObjectMeta.Name != original.ObjectMeta.Name {
+		t.Errorf("Name mismatch: got %s, want %s", copied.ObjectMeta.Name, original.ObjectMeta.Name)
 	}
 
 	// Modify original, ensure copy is unchanged

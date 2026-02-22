@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package resourcereservation implements resource reservation plugin for the scheduler.
 package resourcereservation
 
 import (
@@ -28,7 +29,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
 	"sigs.k8s.io/scheduler-plugins/pkg/apis/scheduling/v1alpha1"
@@ -64,7 +65,7 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	var err error
 
 	// Try to load from config file first (for local development)
-	if _, err := os.Stat("/opt/config-file"); err == nil {
+	if _, statErr := os.Stat("/opt/config-file"); statErr == nil {
 		kubeconfig, err = clientcmd.BuildConfigFromFlags("", "/opt/config-file")
 		if err != nil {
 			klog.V(3).Infof("error building config from file: %v", err)
@@ -80,8 +81,8 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	}
 
 	config := *kubeconfig
-	if err := setConfigDefaults(&config); err != nil {
-		return nil, err
+	if configErr := setConfigDefaults(&config); configErr != nil {
+		return nil, configErr
 	}
 
 	client, err := rest.RESTClientFor(&config)

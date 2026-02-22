@@ -1,0 +1,63 @@
+---
+# Test Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gang-test
+---
+# Pod 1 - part of the gang (label-based approach)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-worker-1
+  namespace: gang-test
+  labels:
+    pod-group.scheduling.sigs.k8s.io/name: test-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+---
+# Pod 2 - part of the gang
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-worker-2
+  namespace: gang-test
+  labels:
+    pod-group.scheduling.sigs.k8s.io/name: test-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+---
+# Pod 3 - part of the gang
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-worker-3
+  namespace: gang-test
+  labels:
+    pod-group.scheduling.sigs.k8s.io/name: test-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi

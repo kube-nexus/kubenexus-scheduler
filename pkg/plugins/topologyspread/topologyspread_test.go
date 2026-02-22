@@ -18,33 +18,52 @@ package topologyspread
 
 import (
 	"testing"
+
+	framework "k8s.io/kube-scheduler/framework"
 )
 
-func TestTopologySpreadPluginName(t *testing.T) {
-	plugin := &TopologySpread{}
-	expected := "TopologySpreadScoring"
-	if plugin.Name() != expected {
-		t.Errorf("Expected plugin name %s, got %s", expected, plugin.Name())
-	}
-}
-
-func TestTopologySpreadConstants(t *testing.T) {
-	if Name != "TopologySpreadScoring" {
-		t.Errorf("Expected Name to be 'TopologySpreadScoring', got %s", Name)
-	}
-
-	if ZoneLabel != "topology.kubernetes.io/zone" {
-		t.Errorf("Expected ZoneLabel to be 'topology.kubernetes.io/zone', got %s", ZoneLabel)
-	}
-
-	if MaxScore != 100 {
-		t.Errorf("Expected MaxScore to be 100, got %d", MaxScore)
+func TestName(t *testing.T) {
+	plugin := &TopologySpreadScorePlugin{}
+	if got := plugin.Name(); got != TopologyScoringName {
+		t.Errorf("Name() = %v, want %v", got, TopologyScoringName)
 	}
 }
 
 func TestScoreExtensions(t *testing.T) {
-	plugin := &TopologySpread{}
-	if plugin.ScoreExtensions() != nil {
-		t.Error("TopologySpread.ScoreExtensions() should return nil")
+	plugin := &TopologySpreadScorePlugin{}
+	if got := plugin.ScoreExtensions(); got != nil {
+		t.Errorf("ScoreExtensions() = %v, want nil", got)
+	}
+}
+
+func TestConstants(t *testing.T) {
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{
+			name: "TopologyScoringName",
+			got:  TopologyScoringName,
+			want: "TopologyScoring",
+		},
+		{
+			name: "MaxScore",
+			got:  MaxScore,
+			want: framework.MaxNodeScore,
+		},
+		{
+			name: "ZoneLabel",
+			got:  ZoneLabel,
+			want: "topology.kubernetes.io/zone",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
 	}
 }

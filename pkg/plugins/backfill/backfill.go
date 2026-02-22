@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package backfill implements backfilling scheduling plugin.
 package backfill
 
 import (
@@ -22,7 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 )
 

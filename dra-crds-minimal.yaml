@@ -1,0 +1,78 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resourceslices.resource.k8s.io
+spec:
+  group: resource.k8s.io
+  names:
+    kind: ResourceSlice
+    listKind: ResourceSliceList
+    plural: resourceslices
+    singular: resourceslice
+  scope: Cluster
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resourceclaims.resource.k8s.io
+spec:
+  group: resource.k8s.io
+  names:
+    kind: ResourceClaim
+    listKind: ResourceClaimList
+    plural: resourceclaims
+    singular: resourceclaim
+  scope: Namespaced
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: deviceclasses.resource.k8s.io
+spec:
+  group: resource.k8s.io
+  names:
+    kind: DeviceClass
+    listKind: DeviceClassList
+    plural: deviceclasses
+    singular: deviceclass
+  scope: Cluster
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true

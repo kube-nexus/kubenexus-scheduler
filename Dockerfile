@@ -1,5 +1,5 @@
 # Multi-stage build for smaller final image
-FROM golang:1.19 AS builder
+FROM golang:1.25 AS builder
 
 WORKDIR /workspace
 
