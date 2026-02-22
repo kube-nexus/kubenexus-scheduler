@@ -9,6 +9,7 @@ import (
 	// Register scheduler plugins
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/backfill"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/coscheduling"
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/networkfabric"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/numatopology"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcefragmentation"
@@ -32,6 +33,7 @@ func main() {
 		app.WithPlugin(backfill.Name, backfill.New),
 		app.WithPlugin(resourcefragmentation.Name, resourcefragmentation.New),
 		app.WithPlugin(tenanthardware.Name, tenanthardware.New),
+		app.WithPlugin(networkfabric.Name, networkfabric.New),
 
 		// Advanced plugins
 		app.WithPlugin(numatopology.Name, numatopology.New),

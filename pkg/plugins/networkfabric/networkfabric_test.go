@@ -267,14 +267,14 @@ func TestCalculateLocalityScore(t *testing.T) {
 			gangPods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "pod-1",
+						Name:      "pod-1",
 						Namespace: "default",
+						Annotations: map[string]string{
+							"node." + LabelFabricID: "fabric-01",
+						},
 					},
 					Spec: v1.PodSpec{
 						NodeName: "node-1",
-						NodeSelector: map[string]string{
-							LabelFabricID: "fabric-01",
-						},
 					},
 				},
 			},
@@ -288,14 +288,14 @@ func TestCalculateLocalityScore(t *testing.T) {
 			gangPods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "pod-1",
+						Name:      "pod-1",
 						Namespace: "default",
+						Annotations: map[string]string{
+							"node." + LabelRackID: "rack-a",
+						},
 					},
 					Spec: v1.PodSpec{
 						NodeName: "node-1",
-						NodeSelector: map[string]string{
-							LabelRackID: "rack-a",
-						},
 					},
 				},
 			},
@@ -309,14 +309,14 @@ func TestCalculateLocalityScore(t *testing.T) {
 			gangPods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "pod-1",
+						Name:      "pod-1",
 						Namespace: "default",
+						Annotations: map[string]string{
+							"node." + LabelAZ: "us-west-1a",
+						},
 					},
 					Spec: v1.PodSpec{
 						NodeName: "node-1",
-						NodeSelector: map[string]string{
-							LabelAZ: "us-west-1a",
-						},
 					},
 				},
 			},
