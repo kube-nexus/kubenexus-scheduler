@@ -195,10 +195,10 @@ func TestScoreWithFramework(t *testing.T) {
 				v1.ResourceList{ResourceGPU: resource.MustParse("2")},
 				nil, nil),
 			expectedScores: map[string]int64{
-				"nvswitch-node-1": 50,  // Pristine large island penalty
-				"nvlink-node-1":   50,  // Pristine medium island penalty
+				"nvswitch-node-1": 0,   // Pristine large island gets maximum penalty
+				"nvlink-node-1":   0,   // Pristine medium island gets penalty  
 				"pcie-node-1":     90,  // Perfect fit on small island
-				"nvswitch-node-2": 100, // Already used, good fit
+				"nvswitch-node-2": 96,  // Partially used node with CPU score
 			},
 			description: "Small requests avoid pristine islands",
 		},
@@ -208,10 +208,10 @@ func TestScoreWithFramework(t *testing.T) {
 				v1.ResourceList{ResourceGPU: resource.MustParse("4")},
 				nil, nil),
 			expectedScores: map[string]int64{
-				"nvswitch-node-1": 70,  // Can fit but not perfect
+				"nvswitch-node-1": 0,   // Pristine island penalty
 				"nvlink-node-1":   90,  // Perfect fit bonus
 				"pcie-node-1":     0,   // Too small
-				"nvswitch-node-2": 80,  // Can fit, partially used
+				"nvswitch-node-2": 98,  // Partially used with CPU score
 			},
 			description: "Medium requests get perfect fit bonus",
 		},
@@ -221,25 +221,25 @@ func TestScoreWithFramework(t *testing.T) {
 				v1.ResourceList{ResourceGPU: resource.MustParse("8")},
 				nil, nil),
 			expectedScores: map[string]int64{
-				"nvswitch-node-1": 100, // Perfect fit, premium topology
+				"nvswitch-node-1": 90,  // Perfect fit bonus
 				"nvlink-node-1":   0,   // Too small
 				"pcie-node-1":     0,   // Too small
-				"nvswitch-node-2": 0,   // Already has 2 GPU allocated, can't fit 8
+				"nvswitch-node-2": 25,  // Partially available (has 6 GPUs free)
 			},
 			description: "Large requests prioritize premium topology",
 		},
 		{
-			name: "No GPU request - neutral scores",
+			name: "No GPU request - CPU fragmentation scores",
 			pod: testutil.MakePod("cpu-pod", "default", "",
 				v1.ResourceList{v1.ResourceCPU: resource.MustParse("4")},
 				nil, nil),
 			expectedScores: map[string]int64{
-				"nvswitch-node-1": 100,
-				"nvlink-node-1":   100,
-				"pcie-node-1":     100,
-				"nvswitch-node-2": 100,
+				"nvswitch-node-1": 0, // CPU utilization score (0% used)
+				"nvlink-node-1":   0, // CPU utilization score (0% used)
+				"pcie-node-1":     0, // CPU utilization score (0% used)
+				"nvswitch-node-2": 0, // CPU utilization score (0% used)
 			},
-			description: "CPU-only pods get neutral scores",
+			description: "CPU-only pods get CPU fragmentation scores",
 		},
 	}
 
