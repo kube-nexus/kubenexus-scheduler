@@ -164,3 +164,195 @@ func TestIsService(t *testing.T) {
 		t.Error("IsService should return true for service pod")
 	}
 }
+
+// TestClassifyPod_EdgeCases tests edge cases in classification
+func TestClassifyPod_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		pod      *v1.Pod
+		wantType Type
+	}{
+		{
+			name: "pod with multiple indicators (gang + spark) - gang wins",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"pod-group.scheduling.sigs.k8s.io/name": "spark-gang",
+						"spark-role":                            "driver",
+					},
+				},
+			},
+			wantType: TypeBatch,
+		},
+		{
+			name: "pod with empty labels map",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{},
+				},
+			},
+			wantType: TypeService,
+		},
+		{
+			name: "pod with no metadata",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{Name: "test"},
+					},
+				},
+			},
+			wantType: TypeService,
+		},
+		{
+			name: "DaemonSet pod",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "DaemonSet",
+							Name:       "monitoring-agent",
+						},
+					},
+				},
+			},
+			wantType: TypeService,
+		},
+		{
+			name: "StatefulSet pod",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "database",
+						},
+					},
+				},
+			},
+			wantType: TypeService,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyPod(tt.pod)
+			if got != tt.wantType {
+				t.Errorf("ClassifyPod() = %v, want %v", got, tt.wantType)
+			}
+		})
+	}
+}
+
+// TestClassifyPod_AllFrameworks tests all supported ML frameworks
+func TestClassifyPod_AllFrameworks(t *testing.T) {
+	frameworks := []struct {
+		name  string
+		label string
+		value string
+	}{
+		{"TensorFlow", "tf-replica-type", "worker"},
+		{"PyTorch", "pytorch-replica-type", "worker"},
+		{"Ray", "ray.io/node-type", "worker"},
+		{"Spark", "spark-role", "executor"},
+		{"MPI", "mpi-job-role", "worker"},
+	}
+
+	for _, fw := range frameworks {
+		t.Run(fw.name, func(t *testing.T) {
+			pod := &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						fw.label: fw.value,
+					},
+				},
+			}
+
+			if ClassifyPod(pod) != TypeBatch {
+				t.Errorf("%s pod should be classified as batch", fw.name)
+			}
+		})
+	}
+}
+
+// BenchmarkClassifyPod benchmarks pod classification performance
+func BenchmarkClassifyPod(b *testing.B) {
+	testCases := []struct {
+		name string
+		pod  *v1.Pod
+	}{
+		{
+			name: "Service",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "nginx",
+					},
+				},
+			},
+		},
+		{
+			name: "Spark",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"spark-role": "driver",
+					},
+				},
+			},
+		},
+		{
+			name: "Gang",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"pod-group.scheduling.sigs.k8s.io/name": "gang-123",
+					},
+				},
+			},
+		},
+		{
+			name: "Job",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "batch/v1",
+							Kind:       "Job",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				_ = ClassifyPod(tc.pod)
+			}
+		})
+	}
+}
+
+// BenchmarkClassifyPod_Parallel benchmarks concurrent classification
+func BenchmarkClassifyPod_Parallel(b *testing.B) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"spark-role": "executor",
+			},
+		},
+	}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = ClassifyPod(pod)
+		}
+	})
+}

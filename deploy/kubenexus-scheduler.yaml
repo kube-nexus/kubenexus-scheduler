@@ -28,18 +28,36 @@ rules:
   resources: ["nodes"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["persistentvolumes"]
+  resources: ["persistentvolumes", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["persistentvolumeclaims"]
+  resources: ["configmaps", "services", "namespaces", "replicationcontrollers"]
   verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["configmaps"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "statefulsets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["storage.k8s.io"]
-  resources: ["storageclasses", "csinodes"]
+  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
   verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceclaims", "deviceclasses", "resourceslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceclaims", "resourceclaims/status"]
+  verbs: ["update", "patch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["podschedulingcontexts"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["podschedulingcontexts/status"]
+  verbs: ["update", "patch"]
 - apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+- apiGroups: ["events.k8s.io"]
   resources: ["events"]
   verbs: ["create", "patch", "update"]
 - apiGroups: ["coordination.k8s.io"]
@@ -69,7 +87,7 @@ metadata:
   namespace: kubenexus-system
 data:
   config.yaml: |
-    apiVersion: kubescheduler.config.k8s.io/v1alpha2
+    apiVersion: kubescheduler.config.k8s.io/v1
     kind: KubeSchedulerConfiguration
     leaderElection:
       leaderElect: true
@@ -80,42 +98,24 @@ data:
     profiles:
     - schedulerName: kubenexus-scheduler
       plugins:
+        # Queue sorting - prioritize gang scheduling pods
         queueSort:
           enabled:
-            - name: Coscheduling
+          - name: Coscheduling
           disabled:
-            - name: "*"
-        filter:
-          enabled:
-            - name: Coscheduling
+          - name: "*"
+        # PreFilter phase - validate gang scheduling requirements
         preFilter:
           enabled:
-            - name: Coscheduling
-            - name: preExtender
-        preScore:
-          enabled:
-            - name: Coscheduling
-        score:
-          enabled:
-            - name: Coscheduling
+          - name: Coscheduling
+        # Permit phase - wait for all pods in gang to be ready
         permit:
           enabled:
-            - name: Coscheduling
+          - name: Coscheduling
+        # Reserve phase - reserve resources for gang
         reserve:
           enabled:
-            - name: resourceReservation
-        preBind:
-          enabled:
-            - name: Coscheduling
-        bind:
-          enabled:
-            - name: Coscheduling
-          disabled:
-            - name: "*"
-        unReserve:
-          enabled:
-            - name: Coscheduling
-            - name: resourceReservation
+          - name: Coscheduling
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -137,10 +137,10 @@ spec:
       serviceAccountName: kubenexus-scheduler
       containers:
       - name: scheduler
-        image: kubenexus-scheduler:v0.1.0
+        image: kubenexus-scheduler:latest
         imagePullPolicy: IfNotPresent
         command:
-          - /opt/kubenexus-scheduler
+          - /kubenexus-scheduler
           - --config=/etc/kubenexus/config.yaml
           - --v=4
         volumeMounts:
@@ -157,13 +157,15 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 10251
+            port: 10259
+            scheme: HTTPS
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 10251
+            port: 10259
+            scheme: HTTPS
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:

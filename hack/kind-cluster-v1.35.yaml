@@ -1,0 +1,53 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  "DynamicResourceAllocation": true
+nodes:
+- role: control-plane
+  image: kindest/node:v1.35.1
+  kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+        runtime-config: "scheduling.k8s.io/v1alpha1=true,resource.k8s.io/v1alpha3=true"
+    controllerManager:
+      extraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+    scheduler:
+      extraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+        cgroup-driver: "systemd"
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: systemd
+- role: worker
+  image: kindest/node:v1.35.1
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+        cgroup-driver: "systemd"
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: systemd
+- role: worker
+  image: kindest/node:v1.35.1
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        feature-gates: "DynamicResourceAllocation=true"
+        cgroup-driver: "systemd"
+  - |
+    kind: KubeletConfiguration
+    cgroupDriver: systemd

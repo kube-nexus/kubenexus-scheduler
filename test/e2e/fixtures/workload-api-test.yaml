@@ -1,0 +1,138 @@
+---
+# Test Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workload-test
+---
+# ResourceFlavor for Kueue
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: default-flavor
+---
+# ClusterQueue for Kueue
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: cluster-queue
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: 10
+      - name: "memory"
+        nominalQuota: 10Gi
+---
+# LocalQueue for namespace
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: user-queue
+  namespace: workload-test
+spec:
+  clusterQueue: cluster-queue
+---
+# Test Job using gang scheduling via Kueue
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gang-job
+  namespace: workload-test
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  parallelism: 3
+  completions: 3
+  template:
+    metadata:
+      labels:
+        app: gang-worker
+    spec:
+      schedulerName: kubenexus-scheduler
+      restartPolicy: Never
+      containers:
+      - name: worker
+        image: nginx:latest
+        command: ["sleep", "30"]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+# K8s 1.35+ Native Workload API Example
+# This uses the native scheduling.k8s.io/v1alpha1 Workload for gang scheduling
+# NOTE: This is for direct pod management (not Jobs)
+apiVersion: scheduling.k8s.io/v1alpha1
+kind: Workload
+metadata:
+  name: native-workload
+  namespace: workload-test
+spec:
+  podSets:
+  - name: workers
+    count: 3
+---
+# Pod 1 - using native Workload API
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-worker-1
+  namespace: workload-test
+  labels:
+    scheduling.k8s.io/workload: native-workload
+    scheduling.k8s.io/podset: workers
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    command: ["sleep", "30"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+---
+# Pod 2 - using native Workload API
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-worker-2
+  namespace: workload-test
+  labels:
+    scheduling.k8s.io/workload: native-workload
+    scheduling.k8s.io/podset: workers
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    command: ["sleep", "30"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+---
+# Pod 3 - using native Workload API
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-worker-3
+  namespace: workload-test
+  labels:
+    scheduling.k8s.io/workload: native-workload
+    scheduling.k8s.io/podset: workers
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: worker
+    image: nginx:latest
+    command: ["sleep", "30"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi

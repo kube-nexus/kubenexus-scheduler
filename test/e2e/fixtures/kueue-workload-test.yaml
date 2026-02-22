@@ -1,0 +1,63 @@
+---
+# Complete Kueue + Workload API Test
+# This includes all required Kueue CRs for gang scheduling
+
+# Test Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workload-test
+---
+# ResourceFlavor - defines available resources
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: default-flavor
+---
+# ClusterQueue - cluster-wide queue with resource limits
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: cluster-queue
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: default-flavor
+      resources:
+      - name: "cpu"
+        nominalQuota: 10
+      - name: "memory"
+        nominalQuota: 10Gi
+---
+# LocalQueue - namespace-scoped queue
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: local-queue
+  namespace: workload-test
+spec:
+  clusterQueue: cluster-queue
+---
+# Kueue Workload for gang scheduling (3 pods)
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: test-workload
+  namespace: workload-test
+spec:
+  queueName: local-queue
+  podSets:
+  - name: workers
+    count: 3
+    template:
+      spec:
+        schedulerName: kubenexus-scheduler
+        containers:
+        - name: worker
+          image: nginx:latest
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi

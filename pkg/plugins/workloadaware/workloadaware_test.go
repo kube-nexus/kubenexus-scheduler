@@ -18,29 +18,47 @@ package workloadaware
 
 import (
 	"testing"
+
+	framework "k8s.io/kube-scheduler/framework"
 )
 
-func TestWorkloadAwarePluginName(t *testing.T) {
+func TestName(t *testing.T) {
 	plugin := &WorkloadAware{}
-	expected := "WorkloadAwareScoring"
-	if plugin.Name() != expected {
-		t.Errorf("Expected plugin name %s, got %s", expected, plugin.Name())
-	}
-}
-
-func TestWorkloadAwareConstants(t *testing.T) {
-	if Name != "WorkloadAwareScoring" {
-		t.Errorf("Expected Name to be 'WorkloadAwareScoring', got %s", Name)
-	}
-
-	if MaxNodeScore != 100 {
-		t.Errorf("Expected MaxNodeScore to be 100, got %d", MaxNodeScore)
+	if got := plugin.Name(); got != Name {
+		t.Errorf("Name() = %v, want %v", got, Name)
 	}
 }
 
 func TestScoreExtensions(t *testing.T) {
 	plugin := &WorkloadAware{}
-	if plugin.ScoreExtensions() != nil {
-		t.Error("WorkloadAware.ScoreExtensions() should return nil")
+	if got := plugin.ScoreExtensions(); got != nil {
+		t.Errorf("ScoreExtensions() = %v, want nil", got)
+	}
+}
+
+func TestConstants(t *testing.T) {
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{
+			name: "Name",
+			got:  Name,
+			want: "WorkloadAwareScoring",
+		},
+		{
+			name: "MaxNodeScore",
+			got:  MaxNodeScore,
+			want: framework.MaxNodeScore,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
 	}
 }

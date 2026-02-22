@@ -19,14 +19,8 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.25'
-    
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+        cache: true
+        cache-dependency-path: go.sum
     
     - name: Download dependencies
       run: go mod download
@@ -36,6 +30,17 @@ jobs:
     
     - name: Run tests
       run: make test
+    
+    - name: Generate coverage report
+      run: make test-coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        flags: unit
+        name: unit-tests
+        fail_ci_if_error: false  # Don't fail CI if Codecov upload fails
     
     - name: Check formatting
       run: |
@@ -61,9 +66,8 @@ jobs:
       with:
         go-version: '1.25'
     
-    - name: Install golangci-lint
-      run: |
-        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-    
     - name: Run golangci-lint
-      run: golangci-lint run --timeout=5m
+      uses: golangci/golangci-lint-action@v7
+      with:
+        version: v2.10.1
+        args: --timeout=5m

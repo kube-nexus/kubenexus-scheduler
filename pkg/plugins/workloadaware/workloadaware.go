@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package workloadaware implements workload-aware scoring for intelligent pod placement.
 package workloadaware
 
 import (
@@ -27,17 +28,9 @@ import (
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
-// WorkloadAware implements workload-aware scoring that adapts its strategy based on pod type:
-//
-//   - Batch workloads (ML training, Spark, data processing):
-//     Uses BIN PACKING strategy - prefers fuller nodes to co-locate batch jobs.
-//     Benefits: Reduced network latency, better resource utilization, leaves empty nodes for services.
-//
-//   - Service workloads (web apps, APIs, microservices):
-//     Uses SPREADING strategy - prefers emptier nodes to distribute services.
-//     Benefits: High availability, fault tolerance, even load distribution across cluster.
-//
-// This adaptive approach optimizes cluster efficiency while maintaining service reliability.
+// WorkloadAware implements workload-aware scoring:
+// - Batch workloads: Bin packing (prefer fuller nodes for co-location)
+// - Service workloads: Spreading (prefer emptier nodes for HA)
 type WorkloadAware struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister

@@ -1,0 +1,11 @@
+# Simple dockerfile using pre-built binary
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /
+
+# Copy the pre-built binary
+COPY kubenexus-scheduler /kubenexus-scheduler
+
+USER 65532:65532
+
+ENTRYPOINT ["/kubenexus-scheduler"]

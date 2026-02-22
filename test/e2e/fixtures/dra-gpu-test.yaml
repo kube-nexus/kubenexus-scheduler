@@ -1,0 +1,227 @@
+---
+# Namespace for DRA GPU testing
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dra-gpu-test
+  labels:
+    name: dra-gpu-test
+
+---
+# DeviceClass for GPU allocation
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: gpu.example.com
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "gpu.example.com"
+
+---
+# ResourceClaimTemplate for single GPU
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: single-gpu-claim
+  namespace: dra-gpu-test
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.example.com
+
+---
+# ResourceClaimTemplate for dual GPUs
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: dual-gpu-claim
+  namespace: dra-gpu-test
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu1
+        exactly:
+          deviceClassName: gpu.example.com
+      - name: gpu2
+        exactly:
+          deviceClassName: gpu.example.com
+
+---
+# Pod requesting single GPU via ResourceClaimTemplate
+apiVersion: v1
+kind: Pod
+metadata:
+  name: single-gpu-pod
+  namespace: dra-gpu-test
+  labels:
+    app: dra-test
+    gpu-count: "1"
+spec:
+  schedulerName: kubenexus-scheduler  # Use our custom scheduler
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu-claim
+    resourceClaimTemplateName: single-gpu-claim
+  containers:
+  - name: gpu-consumer
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      echo "=========================================="
+      echo "Single GPU Pod - Environment Variables"
+      echo "=========================================="
+      env | grep -E "GPU_DEVICE_|DRA_" | sort
+      echo ""
+      echo "Allocated GPU devices:"
+      env | grep "GPU_DEVICE_[0-9]=" | cut -d= -f2
+      echo ""
+      echo "Sleeping for 60 seconds..."
+      sleep 60
+      echo "Done"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+---
+# Pod requesting dual GPUs via ResourceClaimTemplate
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dual-gpu-pod
+  namespace: dra-gpu-test
+  labels:
+    app: dra-test
+    gpu-count: "2"
+spec:
+  schedulerName: kubenexus-scheduler  # Use our custom scheduler
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu-claim
+    resourceClaimTemplateName: dual-gpu-claim
+  containers:
+  - name: gpu-consumer
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      echo "=========================================="
+      echo "Dual GPU Pod - Environment Variables"
+      echo "=========================================="
+      env | grep -E "GPU_DEVICE_|DRA_" | sort
+      echo ""
+      echo "Allocated GPU devices:"
+      env | grep "GPU_DEVICE_[0-9]=" | cut -d= -f2
+      echo ""
+      echo "Sleeping for 60 seconds..."
+      sleep 60
+      echo "Done"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+---
+# Gang of 3 pods with single GPU each (testing DRA + gang scheduling)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-gpu-pod-0
+  namespace: dra-gpu-test
+  labels:
+    app: dra-gang-test
+    pod-group.scheduling.sigs.k8s.io/name: gpu-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu-claim
+    resourceClaimTemplateName: single-gpu-claim
+  containers:
+  - name: gpu-consumer
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      echo "Gang GPU Pod 0 - GPU: $(env | grep 'GPU_DEVICE_[0-9]=' | cut -d= -f2)"
+      sleep 60
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-gpu-pod-1
+  namespace: dra-gpu-test
+  labels:
+    app: dra-gang-test
+    pod-group.scheduling.sigs.k8s.io/name: gpu-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu-claim
+    resourceClaimTemplateName: single-gpu-claim
+  containers:
+  - name: gpu-consumer
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      echo "Gang GPU Pod 1 - GPU: $(env | grep 'GPU_DEVICE_[0-9]=' | cut -d= -f2)"
+      sleep 60
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gang-gpu-pod-2
+  namespace: dra-gpu-test
+  labels:
+    app: dra-gang-test
+    pod-group.scheduling.sigs.k8s.io/name: gpu-gang
+    pod-group.scheduling.sigs.k8s.io/min-available: "3"
+spec:
+  schedulerName: kubenexus-scheduler
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu-claim
+    resourceClaimTemplateName: single-gpu-claim
+  containers:
+  - name: gpu-consumer
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      echo "Gang GPU Pod 2 - GPU: $(env | grep 'GPU_DEVICE_[0-9]=' | cut -d= -f2)"
+      sleep 60
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
