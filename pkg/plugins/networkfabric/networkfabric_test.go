@@ -17,9 +17,11 @@ limitations under the License.
 package networkfabric
 
 import (
+	"fmt"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -246,6 +248,32 @@ func TestMeetsFabricTierRequirement(t *testing.T) {
 }
 
 func TestCalculateLocalityScore(t *testing.T) {
+	// Create fake nodes for testing - each with specific labels
+	nodeFabricOnly := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-fabric",
+			Labels: map[string]string{
+				LabelFabricID: "fabric-01",
+			},
+		},
+	}
+	nodeRackOnly := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-rack",
+			Labels: map[string]string{
+				LabelRackID: "rack-a",
+			},
+		},
+	}
+	nodeAZOnly := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-az",
+			Labels: map[string]string{
+				LabelAZ: "us-west-1a",
+			},
+		},
+	}
+
 	tests := []struct {
 		name              string
 		gangPods          []*v1.Pod
@@ -269,18 +297,15 @@ func TestCalculateLocalityScore(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "pod-1",
 						Namespace: "default",
-						Annotations: map[string]string{
-							"node." + LabelFabricID: "fabric-01",
-						},
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node-1",
+						NodeName: "node-fabric",
 					},
 				},
 			},
 			candidateFabricID: "fabric-01",
-			candidateRackID:   "rack-a",
-			candidateAZ:       "us-west-1a",
+			candidateRackID:   "",
+			candidateAZ:       "",
 			wantScore:         BonusSameFabricDomain,
 		},
 		{
@@ -290,12 +315,9 @@ func TestCalculateLocalityScore(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "pod-1",
 						Namespace: "default",
-						Annotations: map[string]string{
-							"node." + LabelRackID: "rack-a",
-						},
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node-1",
+						NodeName: "node-rack",
 					},
 				},
 			},
@@ -311,12 +333,9 @@ func TestCalculateLocalityScore(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "pod-1",
 						Namespace: "default",
-						Annotations: map[string]string{
-							"node." + LabelAZ: "us-west-1a",
-						},
 					},
 					Spec: v1.PodSpec{
-						NodeName: "node-1",
+						NodeName: "node-az",
 					},
 				},
 			},
@@ -329,12 +348,40 @@ func TestCalculateLocalityScore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateLocalityScore(tt.gangPods, tt.candidateFabricID, tt.candidateRackID, tt.candidateAZ, nil)
+			// Create node lister with nodes for this test
+			fakeNodeLister := &fakeNodeLister{
+				nodes: map[string]*v1.Node{
+					"node-fabric": nodeFabricOnly,
+					"node-rack":   nodeRackOnly,
+					"node-az":     nodeAZOnly,
+				},
+			}
+			got := calculateLocalityScore(tt.gangPods, tt.candidateFabricID, tt.candidateRackID, tt.candidateAZ, fakeNodeLister)
 			if got != tt.wantScore {
 				t.Errorf("calculateLocalityScore() = %d, want %d", got, tt.wantScore)
 			}
 		})
 	}
+}
+
+// fakeNodeLister implements a simple node lister for testing
+type fakeNodeLister struct {
+	nodes map[string]*v1.Node
+}
+
+func (f *fakeNodeLister) List(selector labels.Selector) ([]*v1.Node, error) {
+	var result []*v1.Node
+	for _, node := range f.nodes {
+		result = append(result, node)
+	}
+	return result, nil
+}
+
+func (f *fakeNodeLister) Get(name string) (*v1.Node, error) {
+	if node, ok := f.nodes[name]; ok {
+		return node, nil
+	}
+	return nil, fmt.Errorf("node %s not found", name)
 }
 
 func TestFabricTypeStrings(t *testing.T) {

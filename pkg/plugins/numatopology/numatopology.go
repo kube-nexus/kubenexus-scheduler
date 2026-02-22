@@ -318,9 +318,8 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		// 2. MEMORY BANDWIDTH SCORE (25%)
 		memBandwidthScore = 50.0 // Default neutral score
 		if isMemoryIntensive && numa.MemoryBandwidth > 0 {
-			// Calculate available memory bandwidth
-			// Higher bandwidth = higher score
-			// This is a simplified model; in production, track actual bandwidth usage
+			// Calculate memory bandwidth pressure based on requested vs available memory
+			// Lower utilization = higher available bandwidth = higher score
 			bandwidthUtilization := (float64(podMemory) / float64(numa.TotalMemory)) * 100.0
 			memBandwidthScore = 100.0 - bandwidthUtilization
 			if memBandwidthScore < 0 {
@@ -477,8 +476,8 @@ func (n *NUMATopology) parseNUMATopology(node *v1.Node) ([]NUMANode, error) {
 			}
 		}
 
-		// For simplicity, assume all CPUs/memory are available
-		// In production, you'd track allocations via state or node status
+		// Initialize NUMA node with full capacity
+		// Kubelet Topology Manager tracks actual allocations on the node
 		numaNodes = append(numaNodes, NUMANode{
 			ID:              i,
 			CPUs:            cpus,

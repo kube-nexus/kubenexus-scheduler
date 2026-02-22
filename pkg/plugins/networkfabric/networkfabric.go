@@ -84,8 +84,9 @@ import (
 
 // NetworkFabricScore implements network topology-aware scoring for gang scheduling.
 type NetworkFabricScore struct {
-	handle    framework.Handle
-	podLister corelisters.PodLister
+	handle     framework.Handle
+	podLister  corelisters.PodLister
+	nodeLister corelisters.NodeLister
 }
 
 var _ framework.ScorePlugin = &NetworkFabricScore{}
@@ -186,7 +187,7 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 	}
 
 	// Calculate locality bonuses/penalties based on gang member placement
-	localityScore := calculateLocalityScore(gangPods, fabricID, rackID, az, nf.podLister)
+	localityScore := calculateLocalityScore(gangPods, fabricID, rackID, az, nf.nodeLister)
 	finalScore := baseScore + localityScore
 
 	// Apply network sensitivity multiplier if specified
@@ -283,7 +284,7 @@ func (nf *NetworkFabricScore) getGangMemberPods(namespace, podGroup string) []*v
 }
 
 // calculateLocalityScore computes bonus/penalty based on gang member co-location.
-func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRackID, candidateAZ string, podLister corelisters.PodLister) int {
+func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRackID, candidateAZ string, nodeLister corelisters.NodeLister) int {
 	if len(gangPods) == 0 {
 		return 0
 	}
@@ -293,26 +294,35 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 	racks := make(map[string]int)         // rackID -> count
 	azs := make(map[string]int)           // az -> count
 
-	// In a real implementation, we'd need a node lister to get node labels
-	// For now, we extract from pod annotations or spec if available
+	// Fetch actual node labels from scheduled gang member nodes
 	for _, pod := range gangPods {
 		nodeName := pod.Spec.NodeName
 		if nodeName == "" {
 			continue
 		}
 
-		// Try to extract topology info from pod annotations (if scheduler cached it)
-		// In production, use a nodeLister to get the actual node labels
-		if pod.Annotations != nil {
-			if fabricID := pod.Annotations["node."+LabelFabricID]; fabricID != "" {
-				fabricDomains[fabricID]++
-			}
-			if rackID := pod.Annotations["node."+LabelRackID]; rackID != "" {
-				racks[rackID]++
-			}
-			if az := pod.Annotations["node."+LabelAZ]; az != "" {
-				azs[az]++
-			}
+		// Skip node lookup if nodeLister not provided (testing scenario)
+		if nodeLister == nil {
+			klog.V(5).Infof("NetworkFabricScore: nodeLister nil, skipping node lookup for %s", nodeName)
+			continue
+		}
+
+		// Get node from node lister
+		node, err := nodeLister.Get(nodeName)
+		if err != nil {
+			klog.V(5).Infof("NetworkFabricScore: failed to get node %s: %v", nodeName, err)
+			continue
+		}
+
+		// Extract topology info from node labels
+		if fabricID := node.Labels[LabelFabricID]; fabricID != "" {
+			fabricDomains[fabricID]++
+		}
+		if rackID := node.Labels[LabelRackID]; rackID != "" {
+			racks[rackID]++
+		}
+		if az := node.Labels[LabelAZ]; az != "" {
+			azs[az]++
 		}
 	}
 
@@ -394,9 +404,11 @@ func meetsFabricTierRequirement(actual, minimum FabricType) bool {
 // New initializes a new NetworkFabricScore plugin.
 func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
+	nodeLister := handle.SharedInformerFactory().Core().V1().Nodes().Lister()
 
 	return &NetworkFabricScore{
-		handle:    handle,
-		podLister: podLister,
+		handle:     handle,
+		podLister:  podLister,
+		nodeLister: nodeLister,
 	}, nil
 }
