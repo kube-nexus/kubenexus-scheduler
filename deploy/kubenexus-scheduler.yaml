@@ -17,7 +17,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 - apiGroups: [""]
   resources: ["pods/status"]
   verbs: ["patch", "update"]
@@ -31,22 +31,19 @@ rules:
   resources: ["persistentvolumes", "persistentvolumeclaims"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["services", "replicationcontrollers", "namespaces"]
+  resources: ["configmaps", "services", "namespaces", "replicationcontrollers"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["replicasets", "statefulsets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["storage.k8s.io"]
-  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
+  resources: ["storageclasses", "csinodes", "csidrivers"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["policy"]
   resources: ["poddisruptionbudgets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["resource.k8s.io"]
-  resources: ["resourceclaims", "resourceslices", "deviceclasses"]
+  resources: ["resourceclaims", "deviceclasses", "resourceslices"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["events"]
@@ -81,48 +78,13 @@ data:
     apiVersion: kubescheduler.config.k8s.io/v1
     kind: KubeSchedulerConfiguration
     leaderElection:
-      leaderElect: false
+      leaderElect: true
       resourceName: kubenexus-scheduler
       resourceNamespace: kubenexus-system
     clientConnection:
       kubeconfig: ""
     profiles:
     - schedulerName: kubenexus-scheduler
-      plugins:
-        preEnqueue:
-          disabled:
-            - name: DynamicResources
-        queueSort:
-          enabled:
-            - name: Coscheduling
-          disabled:
-            - name: "*"
-        preFilter:
-          enabled:
-            - name: Coscheduling
-          disabled:
-            - name: DynamicResources
-        filter:
-          disabled:
-            - name: DynamicResources
-        postFilter:
-          disabled:
-            - name: DynamicResources
-        score:
-          disabled:
-            - name: DynamicResources
-        reserve:
-          enabled:
-            - name: Coscheduling
-            - name: ResourceReservation
-          disabled:
-            - name: DynamicResources
-        preBind:
-          disabled:
-            - name: DynamicResources
-        permit:
-          enabled:
-            - name: Coscheduling
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -145,12 +107,11 @@ spec:
       containers:
       - name: scheduler
         image: kubenexus-scheduler:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         command:
           - /opt/kubenexus-scheduler
           - --config=/etc/kubenexus/config.yaml
-          - --leader-elect=false
-          - --v=6
+          - --v=4
         volumeMounts:
         - name: config
           mountPath: /etc/kubenexus
@@ -165,15 +126,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 10259
-            scheme: HTTPS
+            port: 10251
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 10259
-            scheme: HTTPS
+            port: 10251
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:
