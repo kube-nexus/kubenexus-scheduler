@@ -1,7 +1,7 @@
-version: "2"
-
 run:
   timeout: 5m
+  skip-files:
+    - "test/util/fake.go"  # Has k8s.io/apimachinery import compatibility issues with golangci-lint
 
 linters:
   enable:
@@ -10,7 +10,8 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-  settings:
+
+linters-settings:
     errcheck:
       check-type-assertions: true
       check-blank: true

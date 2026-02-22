@@ -24,7 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 )
 
 // PodGroupManager manages pod group state

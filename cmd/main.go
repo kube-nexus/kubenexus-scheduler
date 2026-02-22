@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 
 	// Register scheduler plugins

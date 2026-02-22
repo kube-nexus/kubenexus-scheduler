@@ -81,7 +81,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 )
 

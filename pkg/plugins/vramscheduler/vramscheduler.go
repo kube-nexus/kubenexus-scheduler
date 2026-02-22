@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package vramscheduler implements VRAM-aware GPU scheduling to prevent OOM-on-Arrival crashes
+// and optimize VRAM utilization by matching workload requirements to GPU memory capacity.
 package vramscheduler
 
 import (
@@ -25,7 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
 )
 

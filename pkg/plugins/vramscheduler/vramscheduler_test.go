@@ -326,7 +326,10 @@ func TestFilterWithFramework(t *testing.T) {
 			state := framework.NewCycleState()
 
 			for _, node := range nodes {
-				nodeInfo, _ := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
+				nodeInfo, err := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
+				if err != nil {
+					t.Fatalf("Failed to get node %s: %v", node.Name, err)
+				}
 				status := filterPlugin.Filter(context.Background(), state, pod, nodeInfo)
 
 				shouldPass := tt.expectedPass[node.Name]
@@ -420,7 +423,10 @@ func TestScoreWithFramework(t *testing.T) {
 
 			t.Logf("Test: %s", tt.description)
 			for _, node := range nodes {
-				nodeInfo, _ := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
+				nodeInfo, err := fh.SnapshotSharedLister().NodeInfos().Get(node.Name)
+				if err != nil {
+					t.Fatalf("Failed to get node %s: %v", node.Name, err)
+				}
 				score, status := scorePlugin.Score(context.Background(), state, pod, nodeInfo)
 				if !status.IsSuccess() {
 					t.Logf("  %s: score failed - %v", node.Name, status.AsError())

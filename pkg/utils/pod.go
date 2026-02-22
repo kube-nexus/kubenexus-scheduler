@@ -177,7 +177,10 @@ func GetWorkloadPodGroupInfo(ctx context.Context, pod *v1.Pod, dynamicClient dyn
 			continue
 		}
 
-		minCount, found, _ := getNestedInt64(gang, "minCount")
+		minCount, found, err := getNestedInt64(gang, "minCount")
+		if err != nil {
+			continue
+		}
 		if !found {
 			continue
 		}

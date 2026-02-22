@@ -31,7 +31,7 @@ import (
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/klog/v2"
+	klog "k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
@@ -70,9 +70,9 @@ func createNodeInfoMap(pods []*v1.Pod, nodes []*v1.Node) map[string]fwk.NodeInfo
 		if _, ok := nodeNameToInfo[nodeName]; !ok {
 			nodeNameToInfo[nodeName] = framework.NewNodeInfo()
 		}
-		nodeNameToInfo[nodeName].(*framework.NodeInfo).AddPod(pod)
+		nodeNameToInfo[nodeName].(*framework.NodeInfo).AddPod(pod) //nolint:errcheck // AddPod doesn't return error
 	}
-
+	
 	for _, node := range nodes {
 		if _, ok := nodeNameToInfo[node.Name]; !ok {
 			nodeNameToInfo[node.Name] = framework.NewNodeInfo()
