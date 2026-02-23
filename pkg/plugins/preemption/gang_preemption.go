@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	"sigs.k8s.io/scheduler-plugins/pkg/utils"
 )
 
@@ -92,7 +94,7 @@ func (gp *GangPreemption) PostFilter(ctx context.Context, state framework.CycleS
 		gangResourceNeeds.CPU, gangResourceNeeds.Memory/1024/1024, gangResourceNeeds.GPU)
 
 	// Find victim pods that we can preempt to free up resources
-	victims := gp.findPreemptionVictims(pod, gangResourceNeeds, nodeInfos)
+	victims := gp.findPreemptionVictims(state, pod, gangResourceNeeds, nodeInfos)
 
 	if len(victims) == 0 {
 		klog.V(3).Infof("GangPreemption: no suitable victims found for gang %s/%s",
@@ -145,21 +147,26 @@ func (gp *GangPreemption) calculateGangResourceNeeds(pod *v1.Pod, minAvailable i
 
 // VictimCandidate represents a pod that could be preempted
 type VictimCandidate struct {
-	Pod      *v1.Pod
-	NodeName string
-	Priority int32
-	CPU      int64
-	Memory   int64
-	GPU      int64
+	Pod        *v1.Pod
+	NodeName   string
+	Priority   int32
+	TenantTier string // gold, silver, bronze
+	CPU        int64
+	Memory     int64
+	GPU        int64
 }
 
 // findPreemptionVictims finds lower-priority pods that can be preempted
 // to free up resources for the gang
-func (gp *GangPreemption) findPreemptionVictims(gangPod *v1.Pod, needs ResourceRequirements, nodeInfos []framework.NodeInfo) []*v1.Pod {
+func (gp *GangPreemption) findPreemptionVictims(state framework.CycleState, gangPod *v1.Pod, needs ResourceRequirements, nodeInfos []framework.NodeInfo) []*v1.Pod {
 	gangPriority := int32(0)
 	if gangPod.Spec.Priority != nil {
 		gangPriority = *gangPod.Spec.Priority
 	}
+
+	// Get gang pod's tenant tier
+	gangTenantTier := gp.getTenantTierFromProfile(state, gangPod)
+	gangTierPriority := getTierPriority(gangTenantTier)
 
 	// Collect all potential victim candidates (lower priority than gang pod)
 	var candidates []VictimCandidate
@@ -209,7 +216,15 @@ func (gp *GangPreemption) findPreemptionVictims(gangPod *v1.Pod, needs ResourceR
 			victimPriority = *victimPod.Spec.Priority
 		}
 
-		if victimPriority >= gangPriority {
+		// Get victim's tenant tier
+		victimTenantTier := gp.getTenantTierFromPod(victimPod)
+		victimTierPriority := getTierPriority(victimTenantTier)
+
+		// Tenant-tier-aware preemption check
+		if gangTierPriority < victimTierPriority {
+			continue
+		}
+		if gangTierPriority == victimTierPriority && victimPriority >= gangPriority {
 			continue
 		}
 
@@ -227,12 +242,13 @@ func (gp *GangPreemption) findPreemptionVictims(gangPod *v1.Pod, needs ResourceR
 		}
 
 		candidates = append(candidates, VictimCandidate{
-			Pod:      victimPod,
-			NodeName: victimPod.Spec.NodeName,
-			Priority: victimPriority,
-			CPU:      cpu,
-			Memory:   memory,
-			GPU:      gpu,
+			Pod:        victimPod,
+			NodeName:   victimPod.Spec.NodeName,
+			Priority:   victimPriority,
+			TenantTier: victimTenantTier,
+			CPU:        cpu,
+			Memory:     memory,
+			GPU:        gpu,
 		})
 	}
 
@@ -240,14 +256,16 @@ func (gp *GangPreemption) findPreemptionVictims(gangPod *v1.Pod, needs ResourceR
 		return nil
 	}
 
-	// Sort candidates by priority (lowest first) and then by resource size (smallest first)
-	// Strategy: Preempt the lowest priority pods first, and prefer smaller pods
-	// to minimize disruption
+	// Sort candidates by tenant tier, then priority, then size
 	sort.Slice(candidates, func(i, j int) bool {
+		iTierPrio := getTierPriority(candidates[i].TenantTier)
+		jTierPrio := getTierPriority(candidates[j].TenantTier)
+		if iTierPrio != jTierPrio {
+			return iTierPrio < jTierPrio
+		}
 		if candidates[i].Priority != candidates[j].Priority {
 			return candidates[i].Priority < candidates[j].Priority
 		}
-		// If same priority, prefer smaller pods (less disruption)
 		return candidates[i].CPU < candidates[j].CPU
 	})
 
@@ -323,6 +341,51 @@ func (gp *GangPreemption) selectNominatedNode(victims []*v1.Pod, nodeInfos []fra
 	}
 
 	return bestNode
+}
+
+// getTenantTierFromProfile gets tenant tier using ProfileClassifier.
+func (gp *GangPreemption) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return strings.ToLower(string(profile.TenantTier))
+	}
+	return "bronze"
+}
+
+// getTenantTierFromPod gets tenant tier from pod labels (fallback).
+func (gp *GangPreemption) getTenantTierFromPod(pod *v1.Pod) string {
+	if queueName, exists := pod.Labels["kueue.x-k8s.io/queue-name"]; exists {
+		if strings.Contains(strings.ToLower(queueName), "gold") {
+			return "gold"
+		}
+		if strings.Contains(strings.ToLower(queueName), "silver") {
+			return "silver"
+		}
+	}
+	if pod.Namespace != "" {
+		namespace := strings.ToLower(pod.Namespace)
+		if strings.Contains(namespace, "gold") {
+			return "gold"
+		}
+		if strings.Contains(namespace, "silver") {
+			return "silver"
+		}
+	}
+	return "bronze"
+}
+
+// getTierPriority converts tenant tier to numeric priority.
+func getTierPriority(tier string) int {
+	switch strings.ToLower(tier) {
+	case "gold":
+		return 3
+	case "silver":
+		return 2
+	case "bronze":
+		return 1
+	default:
+		return 1
+	}
 }
 
 // New creates a new GangPreemption plugin

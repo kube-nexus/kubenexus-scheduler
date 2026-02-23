@@ -27,6 +27,8 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
+
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 )
 
 const (
@@ -36,9 +38,10 @@ const (
 	ResourceCPU    = v1.ResourceCPU
 	ResourceMemory = v1.ResourceMemory
 
-	LabelGPUTopology   = "gpu.kubenexus.io/topology"
-	LabelGPUModel      = "gpu.kubenexus.io/model"
-	LabelGPUIsPristine = "gpu.kubenexus.io/is-pristine"
+	LabelGPUTopology    = "gpu.kubenexus.io/topology"
+	LabelGPUModel       = "gpu.kubenexus.io/model"
+	LabelGPUIsPristine  = "gpu.kubenexus.io/is-pristine"
+	LabelNodeTenantTier = "tenant.kubenexus.io/reserved-tier" // Node reserved for specific tenant tier
 
 	IslandQualityNVSwitch = 100
 	IslandQualityNVLink   = 80
@@ -47,6 +50,7 @@ const (
 
 	PenaltyFragmentPristineIsland = 0
 	PenaltyFragmentLargeIsland    = 20
+	PenaltyTenantMismatch         = 10 // Lower tier tenant trying to use higher tier island
 	BonusCompleteIsland           = 100
 	BonusPerfectFit               = 90
 
@@ -70,6 +74,7 @@ type GPUIsland struct {
 	GPUModel      string
 	Quality       int
 	IsPristine    bool
+	TenantTier    string // Reserved tenant tier (gold/silver/bronze)
 }
 
 func (rf *ResourceFragmentationScore) Name() string {
@@ -87,6 +92,25 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 		return rf.scoreCPUMemoryFragmentation(pod, nodeInfo), framework.NewStatus(framework.Success)
 	}
 
+	// Get pod's tenant tier from ProfileClassifier
+	podTenantTier := rf.getPodTenantTier(state, pod)
+
+	// TENANT-AWARE ISLAND PROTECTION:
+	// Prevent lower-tier tenants from fragmenting higher-tier tenant islands
+	if island.TenantTier != "" && island.TenantTier != "none" {
+		if !rf.isTenantAllowed(podTenantTier, island.TenantTier) {
+			klog.V(3).InfoS("Preventing tenant mismatch fragmentation",
+				"pod", klog.KObj(pod),
+				"podTenantTier", podTenantTier,
+				"node", nodeInfo.Node().Name,
+				"nodeTenantTier", island.TenantTier,
+				"islandSize", island.TotalGPUs)
+			return PenaltyTenantMismatch, framework.NewStatus(framework.Success)
+		}
+	}
+
+	// PRISTINE ISLAND PROTECTION:
+	// Prevent small requests from fragmenting large pristine islands
 	if island.IsPristine && island.TotalGPUs >= LargeIslandThreshold && requestedGPUs <= SmallRequestThreshold {
 		klog.V(4).InfoS("Preventing pristine island fragmentation",
 			"pod", pod.Name,
@@ -115,6 +139,35 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 
 	utilizationScore := (island.AllocatedGPUs * 100) / island.TotalGPUs
 	return int64(utilizationScore), framework.NewStatus(framework.Success)
+}
+
+// getPodTenantTier gets the pod's tenant tier from ProfileClassifier or defaults to unknown
+func (rf *ResourceFragmentationScore) getPodTenantTier(state framework.CycleState, pod *v1.Pod) string {
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return string(profile.TenantTier)
+	}
+	// Default to bronze (lowest tier) if ProfileClassifier not available
+	return "bronze"
+}
+
+// isTenantAllowed checks if a pod's tenant tier can use a node reserved for a specific tier
+// Tenant hierarchy: gold > silver > bronze
+// Gold tenants can use any island, silver can use silver/bronze, bronze only bronze
+func (rf *ResourceFragmentationScore) isTenantAllowed(podTier string, nodeTier string) bool {
+	// Map tier priority: gold=3, silver=2, bronze=1, unknown=1
+	tierPriority := map[string]int{
+		"gold":    3,
+		"silver":  2,
+		"bronze":  1,
+		"unknown": 1,
+	}
+
+	podPriority := tierPriority[podTier]
+	nodePriority := tierPriority[nodeTier]
+
+	// Pod can use node if its tier is >= node's tier
+	return podPriority >= nodePriority
 }
 
 func (rf *ResourceFragmentationScore) ScoreExtensions() framework.ScoreExtensions {
@@ -178,6 +231,12 @@ func (rf *ResourceFragmentationScore) detectGPUIsland(nodeInfo framework.NodeInf
 		isPristine = true
 	}
 
+	// Check if node is reserved for a specific tenant tier
+	tenantTier := ""
+	if val, ok := node.Labels[LabelNodeTenantTier]; ok {
+		tenantTier = val
+	}
+
 	return &GPUIsland{
 		NodeName:      node.Name,
 		TotalGPUs:     totalGPUCount,
@@ -187,6 +246,7 @@ func (rf *ResourceFragmentationScore) detectGPUIsland(nodeInfo framework.NodeInf
 		GPUModel:      gpuModel,
 		Quality:       quality,
 		IsPristine:    isPristine,
+		TenantTier:    tenantTier,
 	}
 }
 

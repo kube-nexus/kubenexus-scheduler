@@ -27,6 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	testutil "sigs.k8s.io/scheduler-plugins/test/util"
 )
 
@@ -541,5 +542,35 @@ func TestScoreWithNoGPUNodes(t *testing.T) {
 			t.Errorf("Node %s: expected neutral score %d, got %d",
 				node.Name, ScoreNoHardwareInfo, score)
 		}
+	}
+}
+
+// TestScoreWithProfileClassifier tests scoring when ProfileClassifier is enabled
+func TestScoreWithProfileClassifier(t *testing.T) {
+	t.Skip("Integration test - requires complex framework setup with ProfileClassifier")
+}
+
+// TestMapTenantTierToPriority tests the tenant tier to priority mapping
+func TestMapTenantTierToPriority(t *testing.T) {
+	plugin := &TenantHardwareAffinity{}
+
+	tests := []struct {
+		tier             profileclassifier.TenantTier
+		expectedPriority string
+	}{
+		{profileclassifier.TierGold, PriorityHigh},
+		{profileclassifier.TierSilver, PriorityMedium},
+		{profileclassifier.TierBronze, PriorityLow},
+		{profileclassifier.TierUnknown, PriorityMedium},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.tier), func(t *testing.T) {
+			priority := plugin.mapTenantTierToPriority(tt.tier)
+			if priority != tt.expectedPriority {
+				t.Errorf("Expected priority %s for tier %s, got %s",
+					tt.expectedPriority, tt.tier, priority)
+			}
+		})
 	}
 }

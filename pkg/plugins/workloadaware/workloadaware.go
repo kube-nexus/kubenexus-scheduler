@@ -23,8 +23,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
@@ -53,16 +55,16 @@ func (w *WorkloadAware) Name() string {
 
 // Score invoked at the score extension point.
 func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
-	// Classify the workload
-	workloadType := workload.ClassifyPod(pod)
+	// Try to get workload type from ProfileClassifier (preferred)
+	workloadType := w.getWorkloadTypeFromProfile(state, pod)
 
 	// Calculate node utilization (0-100%)
 	utilization := w.calculateNodeUtilization(nodeInfo)
 
 	var score int64
 	switch workloadType {
-	case workload.TypeBatch:
-		// Batch: Bin packing - prefer fuller nodes
+	case workload.TypeBatch, "batch", "training":
+		// Batch/Training: Bin packing - prefer fuller nodes
 		// Higher utilization = higher score
 		// Goal: Co-locate batch pods on same nodes to:
 		// 1. Reduce network latency (ML training, Spark shuffles)
@@ -70,8 +72,8 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 		// 3. Maximize resource utilization
 		score = int64(utilization)
 
-	case workload.TypeService:
-		// Service: Spreading - prefer emptier nodes
+	case workload.TypeService, "service", "inference":
+		// Service/Inference: Spreading - prefer emptier nodes
 		// Lower utilization = higher score
 		// Goal: Distribute services across nodes for:
 		// 1. High availability (no single point of failure)
@@ -85,6 +87,27 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 	}
 
 	return score, framework.NewStatus(framework.Success, "")
+}
+
+// getWorkloadTypeFromProfile tries to get workload type from ProfileClassifier,
+// falls back to local classification if ProfileClassifier is not enabled
+func (w *WorkloadAware) getWorkloadTypeFromProfile(state framework.CycleState, pod *v1.Pod) interface{} {
+	// Try to get profile from ProfileClassifier (preferred)
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		// Map ProfileClassifier workload types to our string representation
+		workloadTypeStr := string(profile.WorkloadType)
+		klog.V(4).InfoS("Using workload classification from ProfileClassifier",
+			"pod", klog.KObj(pod),
+			"workloadType", profile.WorkloadType,
+			"tenantTier", profile.TenantTier)
+		return workloadTypeStr
+	}
+
+	// Fall back to local classification for backward compatibility
+	klog.V(5).InfoS("ProfileClassifier not available, using local workload classification",
+		"pod", klog.KObj(pod))
+	return workload.ClassifyPod(pod)
 }
 
 // ScoreExtensions returns a ScoreExtensions interface if it implements one, or nil if not.
