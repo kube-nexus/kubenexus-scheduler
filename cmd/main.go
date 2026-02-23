@@ -12,10 +12,12 @@ import (
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/networkfabric"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/numatopology"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcefragmentation"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcereservation"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/tenanthardware"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/topologyspread"
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/vramscheduler"
 	"sigs.k8s.io/scheduler-plugins/pkg/plugins/workloadaware"
 )
 
@@ -23,6 +25,9 @@ func main() {
 	klog.InfoS("KubeNexus Scheduler starting", "version", "v0.1.0")
 
 	command := app.NewSchedulerCommand(
+		// Classification hub - MUST run first in PreFilter
+		app.WithPlugin(profileclassifier.Name, profileclassifier.New),
+
 		// Core scheduling plugins
 		app.WithPlugin(coscheduling.Name, coscheduling.New),
 		app.WithPlugin(resourcereservation.Name, resourcereservation.New),
@@ -33,6 +38,7 @@ func main() {
 		app.WithPlugin(backfill.Name, backfill.New),
 		app.WithPlugin(resourcefragmentation.Name, resourcefragmentation.New),
 		app.WithPlugin(tenanthardware.Name, tenanthardware.New),
+		app.WithPlugin(vramscheduler.Name, vramscheduler.New),
 		app.WithPlugin(networkfabric.Name, networkfabric.New),
 
 		// Advanced plugins
