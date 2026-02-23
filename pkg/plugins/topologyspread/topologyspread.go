@@ -19,11 +19,13 @@ package topologyspread
 
 import (
 	"context"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	framework "k8s.io/kube-scheduler/framework"
 
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
@@ -54,17 +56,21 @@ func (t *TopologySpreadScorePlugin) Name() string {
 
 // Score invoked at the score extension point.
 // Calculates a score based on how well the pod would be spread across zones.
+//
+// WORKLOAD-AWARE SPREADING:
+//   - Service/Inference workloads: Strong zone spreading for high availability
+//   - Batch/Training workloads: Neutral score (co-location more important for performance)
 func (t *TopologySpreadScorePlugin) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Error, "node is nil")
 	}
 
-	// Classify the workload
-	workloadType := workload.ClassifyPod(pod)
+	// Classify the workload using ProfileClassifier first, then fallback
+	workloadTypeFromProfile := t.getWorkloadTypeFromProfile(state, pod)
 
-	// For batch workloads, topology is less critical (return neutral score)
-	if workloadType == workload.TypeBatch {
+	// For batch/training workloads, topology is less critical (return neutral score)
+	if workloadTypeFromProfile == "batch" || workloadTypeFromProfile == "training" {
 		return MaxScore / 2, framework.NewStatus(framework.Success, "")
 	}
 
@@ -96,6 +102,31 @@ func (t *TopologySpreadScorePlugin) Score(ctx context.Context, state framework.C
 	score := int64(float64(MaxScore) * (1.0 - float64(podsInThisZone)/float64(totalPods)))
 
 	return score, framework.NewStatus(framework.Success, "")
+}
+
+// getWorkloadTypeFromProfile gets workload type using ProfileClassifier with fallback.
+//
+// Integration with ProfileClassifier:
+//   - Uses profile.WorkloadType for centralized classification
+//   - Falls back to workload.ClassifyPod() if ProfileClassifier unavailable
+//   - Returns normalized string: "training", "inference", "batch", "service", "unknown"
+func (t *TopologySpreadScorePlugin) getWorkloadTypeFromProfile(state framework.CycleState, pod *v1.Pod) string {
+	// Try ProfileClassifier first
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return strings.ToLower(string(profile.WorkloadType))
+	}
+
+	// Fallback to local classification
+	workloadType := workload.ClassifyPod(pod)
+	switch workloadType {
+	case workload.TypeBatch:
+		return "batch"
+	case workload.TypeService:
+		return "service"
+	default:
+		return "unknown"
+	}
 }
 
 // calculateZoneDistribution counts nodes per zone as a proxy for pod distribution

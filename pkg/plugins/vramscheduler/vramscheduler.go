@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	klog "k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
+
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 )
 
 const (
@@ -65,6 +67,29 @@ const (
 	// Bonus/Penalty adjustments
 	BonusHighEndGPU   = 10 // Bonus for scheduling on premium GPUs (H100, A100-80GB)
 	PenaltyStrandVRAM = 20 // Penalty for stranding >50% of VRAM
+
+	// Tenant-tier-specific VRAM thresholds
+	// Gold tenants: Tighter thresholds (prevent waste of premium H100 VRAM)
+	// Silver tenants: Standard thresholds
+	// Bronze tenants: Looser thresholds (can tolerate lower utilization)
+
+	// Gold tenant thresholds (90-100% preferred)
+	GoldThresholdPerfectFit    = 0.98 // 98-100% utilization
+	GoldThresholdGoodFit       = 0.85 // 85-98% utilization
+	GoldThresholdAcceptableFit = 0.70 // 70-85% utilization
+	GoldThresholdPoorFit       = 0.50 // 50-70% utilization
+
+	// Silver tenant thresholds (same as default)
+	SilverThresholdPerfectFit    = ThresholdPerfectFit    // 95-100%
+	SilverThresholdGoodFit       = ThresholdGoodFit       // 70-95%
+	SilverThresholdAcceptableFit = ThresholdAcceptableFit // 50-70%
+	SilverThresholdPoorFit       = ThresholdPoorFit       // 30-50%
+
+	// Bronze tenant thresholds (looser - can use underutilized GPUs)
+	BronzeThresholdPerfectFit    = 0.90 // 90-100% utilization
+	BronzeThresholdGoodFit       = 0.60 // 60-90% utilization
+	BronzeThresholdAcceptableFit = 0.40 // 40-60% utilization
+	BronzeThresholdPoorFit       = 0.20 // 20-40% utilization
 )
 
 // VRAMScheduler implements VRAM-aware scheduling to prevent OOM and optimize VRAM utilization
@@ -134,7 +159,8 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 		}
 		// Multi-GPU case: calculate utilization across all GPUs
 		utilizationRatio := float64(totalVRAMNeeded) / float64(totalAvailableVRAM)
-		score := calculateUtilizationScore(utilizationRatio)
+		tenantTier := v.getTenantTierFromProfile(state, pod)
+		score := calculateUtilizationScore(utilizationRatio, tenantTier)
 
 		klog.V(4).InfoS("Multi-GPU VRAM scheduling",
 			"pod", pod.Name,
@@ -150,7 +176,10 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 
 	// Single GPU case: calculate utilization
 	utilizationRatio := float64(totalVRAMNeeded) / float64(totalVRAMPerGPU)
-	score := calculateUtilizationScore(utilizationRatio)
+
+	// Get tenant tier for threshold adjustment
+	tenantTier := v.getTenantTierFromProfile(state, pod)
+	score := calculateUtilizationScore(utilizationRatio, tenantTier)
 
 	// Apply bonus for high-end GPUs (better for large models)
 	if isHighEndGPU(node) && utilizationRatio >= ThresholdGoodFit {
@@ -245,21 +274,73 @@ func (v *VRAMScheduler) Filter(ctx context.Context, state framework.CycleState, 
 	return framework.NewStatus(framework.Success)
 }
 
-// calculateUtilizationScore calculates score based on VRAM utilization ratio
-func calculateUtilizationScore(utilizationRatio float64) int64 {
-	if utilizationRatio >= ThresholdPerfectFit {
+// calculateUtilizationScore calculates score based on VRAM utilization ratio and tenant tier.
+//
+// TENANT-TIER-AWARE THRESHOLDS:
+//   - Gold tenants: Tighter thresholds (prevent wasting premium H100 VRAM)
+//   - Silver tenants: Standard thresholds
+//   - Bronze tenants: Looser thresholds (can tolerate lower utilization, use underutilized GPUs)
+//
+// This creates economic incentives:
+//   - Gold tenants must efficiently use expensive H100 GPUs
+//   - Bronze tenants can "backfill" underutilized GPUs
+func calculateUtilizationScore(utilizationRatio float64, tenantTier string) int64 {
+	// Select thresholds based on tenant tier
+	var perfectFit, goodFit, acceptableFit, poorFit float64
+
+	switch strings.ToLower(tenantTier) {
+	case "gold":
+		perfectFit = GoldThresholdPerfectFit
+		goodFit = GoldThresholdGoodFit
+		acceptableFit = GoldThresholdAcceptableFit
+		poorFit = GoldThresholdPoorFit
+	case "silver":
+		perfectFit = SilverThresholdPerfectFit
+		goodFit = SilverThresholdGoodFit
+		acceptableFit = SilverThresholdAcceptableFit
+		poorFit = SilverThresholdPoorFit
+	case "bronze":
+		perfectFit = BronzeThresholdPerfectFit
+		goodFit = BronzeThresholdGoodFit
+		acceptableFit = BronzeThresholdAcceptableFit
+		poorFit = BronzeThresholdPoorFit
+	default:
+		// Unknown tenant, use silver (standard) thresholds
+		perfectFit = SilverThresholdPerfectFit
+		goodFit = SilverThresholdGoodFit
+		acceptableFit = SilverThresholdAcceptableFit
+		poorFit = SilverThresholdPoorFit
+	}
+
+	// Calculate score based on tenant-specific thresholds
+	if utilizationRatio >= perfectFit {
 		return ScorePerfectFit
 	}
-	if utilizationRatio >= ThresholdGoodFit {
+	if utilizationRatio >= goodFit {
 		return ScoreGoodFit
 	}
-	if utilizationRatio >= ThresholdAcceptableFit {
+	if utilizationRatio >= acceptableFit {
 		return ScoreAcceptableFit
 	}
-	if utilizationRatio >= ThresholdPoorFit {
+	if utilizationRatio >= poorFit {
 		return ScorePoorFit
 	}
 	return ScoreInsufficientVRAM
+}
+
+// getTenantTierFromProfile gets tenant tier using ProfileClassifier.
+//
+// Integration with ProfileClassifier:
+//   - Uses profile.TenantTier for centralized classification
+//   - Returns "gold", "silver", or "bronze"
+//   - Defaults to "bronze" if ProfileClassifier unavailable (most permissive)
+func (v *VRAMScheduler) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return strings.ToLower(string(profile.TenantTier))
+	}
+	// Default to bronze (most permissive) if ProfileClassifier unavailable
+	return "bronze"
 }
 
 // getVRAMRequest extracts VRAM request from pod annotations (in bytes)

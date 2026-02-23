@@ -83,6 +83,9 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
+
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
+	"sigs.k8s.io/scheduler-plugins/pkg/workload"
 )
 
 // NetworkFabricScore implements network topology-aware scoring for gang scheduling.
@@ -128,6 +131,12 @@ const (
 
 	// Network sensitivity multiplier
 	WeightNetworkSensitive = 1.5 // Boost scoring for network-intensive workloads
+
+	// Workload-specific fabric tier boosts (added when workload type matches fabric needs)
+	BoostTrainingHighTier    = 15 // Training workloads on NVSwitch/InfiniBand (need high bandwidth)
+	BoostInferenceLowTier    = 10 // Inference workloads can tolerate lower-tier fabrics
+	PenaltyTrainingLowTier   = 20 // Training workloads on low-tier fabrics (performance penalty)
+	PenaltyInferenceHighTier = 5  // Minor penalty for wasting high-tier fabric on inference
 )
 
 // FabricType represents different network fabric technologies.
@@ -191,7 +200,11 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 
 	// Calculate locality bonuses/penalties based on gang member placement
 	localityScore := calculateLocalityScore(gangPods, fabricID, rackID, az, nf.nodeLister)
-	finalScore := baseScore + localityScore
+
+	// Apply workload-aware fabric tier adjustment
+	workloadAdjustment := nf.getWorkloadFabricBonus(state, pod, fabricType)
+
+	finalScore := baseScore + localityScore + workloadAdjustment
 
 	// Apply network sensitivity multiplier if specified
 	if isNetworkSensitive(pod) {
@@ -215,8 +228,8 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 		finalScore = 0
 	}
 
-	klog.V(4).Infof("NetworkFabricScore: pod %s/%s (gang %s) on node %s, fabric=%s, base=%d, locality=%d, final=%d",
-		pod.Namespace, pod.Name, podGroup, node.Name, fabricType, baseScore, localityScore, finalScore)
+	klog.V(4).Infof("NetworkFabricScore: pod %s/%s (gang %s) on node %s, fabric=%s, base=%d, locality=%d, workload=%d, final=%d",
+		pod.Namespace, pod.Name, podGroup, node.Name, fabricType, baseScore, localityScore, workloadAdjustment, finalScore)
 
 	return int64(finalScore), nil
 }
@@ -364,6 +377,78 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 	}
 
 	return localityScore
+}
+
+// getWorkloadFabricBonus calculates fabric tier bonus/penalty based on workload type.
+//
+// FABRIC MATCHING LOGIC:
+//   - Training workloads: Need high bandwidth (all-reduce), prefer NVSwitch/InfiniBand
+//   - Inference workloads: Lower bandwidth needs, can use lower-tier fabrics
+//   - Batch workloads: Similar to training for distributed batch jobs
+//   - Service workloads: Similar to inference for serving endpoints
+//
+// Integration with ProfileClassifier:
+//   - Uses profile.WorkloadType for centralized classification
+//   - Falls back to local workload detection if ProfileClassifier unavailable
+func (nf *NetworkFabricScore) getWorkloadFabricBonus(state framework.CycleState, pod *v1.Pod, fabricType FabricType) int {
+	// Try ProfileClassifier first
+	profile, err := profileclassifier.GetProfile(&state)
+	var workloadTypeStr string
+	if err == nil && profile != nil {
+		workloadTypeStr = strings.ToLower(string(profile.WorkloadType))
+		klog.V(5).Infof("NetworkFabricScore: pod %s/%s workload type from ProfileClassifier: %s",
+			pod.Namespace, pod.Name, workloadTypeStr)
+	} else {
+		// Fallback to local classification
+		workloadType := workload.ClassifyPod(pod)
+		switch workloadType {
+		case workload.TypeBatch:
+			workloadTypeStr = "training" // Batch often means training
+		case workload.TypeService:
+			workloadTypeStr = "inference" // Service often means inference
+		default:
+			workloadTypeStr = "unknown"
+		}
+		klog.V(5).Infof("NetworkFabricScore: pod %s/%s workload type from local classification: %s",
+			pod.Namespace, pod.Name, workloadTypeStr)
+	}
+
+	// Classify fabric tier (high vs low)
+	isHighTierFabric := fabricType == FabricNVSwitch || fabricType == FabricInfiniBand
+	isLowTierFabric := fabricType == FabricRoCE || fabricType == FabricEthernet
+
+	// Apply workload-specific bonuses/penalties
+	switch workloadTypeStr {
+	case "training", "batch":
+		// Training needs high bandwidth for collective operations (all-reduce, all-gather)
+		if isHighTierFabric {
+			klog.V(5).Infof("NetworkFabricScore: training workload on high-tier fabric, bonus=%d", BoostTrainingHighTier)
+			return BoostTrainingHighTier
+		}
+		if isLowTierFabric {
+			klog.V(5).Infof("NetworkFabricScore: training workload on low-tier fabric, penalty=%d", -PenaltyTrainingLowTier)
+			return -PenaltyTrainingLowTier
+		}
+
+	case "inference", "service":
+		// Inference has lower bandwidth needs, can tolerate lower-tier fabrics
+		if isLowTierFabric {
+			klog.V(5).Infof("NetworkFabricScore: inference workload on low-tier fabric, bonus=%d", BoostInferenceLowTier)
+			return BoostInferenceLowTier
+		}
+		if isHighTierFabric {
+			// Minor penalty for "wasting" high-tier fabric
+			klog.V(5).Infof("NetworkFabricScore: inference workload on high-tier fabric, minor penalty=%d", -PenaltyInferenceHighTier)
+			return -PenaltyInferenceHighTier
+		}
+
+	default:
+		// Unknown workload type, no adjustment
+		return 0
+	}
+
+	// Default: no adjustment for mid-tier fabrics (NVLink)
+	return 0
 }
 
 // isNetworkSensitive checks if pod is marked as network-sensitive workload.

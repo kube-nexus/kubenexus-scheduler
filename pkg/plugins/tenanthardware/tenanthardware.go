@@ -42,6 +42,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
+
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 )
 
 const (
@@ -94,7 +96,8 @@ func (tha *TenantHardwareAffinity) Score(ctx context.Context, state framework.Cy
 	}
 
 	// 1. Determine pod's tenant priority
-	tenantPriority := tha.getTenantPriority(pod)
+	// Try ProfileClassifier first (preferred), fall back to local classification
+	tenantPriority := tha.getTenantPriorityFromProfile(state, pod)
 
 	// 2. Determine node's hardware tier
 	hardwareTier := tha.getHardwareTier(node)
@@ -117,7 +120,45 @@ func (tha *TenantHardwareAffinity) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
-// getTenantPriority determines the priority tier of a pod/tenant
+// getTenantPriorityFromProfile tries to get tenant classification from ProfileClassifier,
+// falls back to local classification if ProfileClassifier is not enabled
+func (tha *TenantHardwareAffinity) getTenantPriorityFromProfile(state framework.CycleState, pod *v1.Pod) string {
+	// Try to get profile from ProfileClassifier (preferred)
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		// Map ProfileClassifier tenant tiers to our priority levels
+		priority := tha.mapTenantTierToPriority(profile.TenantTier)
+		klog.V(4).InfoS("Using tenant classification from ProfileClassifier",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"tenantTier", profile.TenantTier,
+			"tenantName", profile.TenantName,
+			"mappedPriority", priority)
+		return priority
+	}
+
+	// Fall back to local classification for backward compatibility
+	klog.V(5).InfoS("ProfileClassifier not available, using local tenant classification",
+		"pod", pod.Name,
+		"namespace", pod.Namespace)
+	return tha.getTenantPriority(pod)
+}
+
+// mapTenantTierToPriority maps ProfileClassifier tenant tiers to priority levels
+func (tha *TenantHardwareAffinity) mapTenantTierToPriority(tier profileclassifier.TenantTier) string {
+	switch tier {
+	case profileclassifier.TierGold:
+		return PriorityHigh
+	case profileclassifier.TierSilver:
+		return PriorityMedium
+	case profileclassifier.TierBronze:
+		return PriorityLow
+	default:
+		return PriorityMedium
+	}
+}
+
+// getTenantPriority determines the priority tier of a pod/tenant (fallback method)
 func (tha *TenantHardwareAffinity) getTenantPriority(pod *v1.Pod) string {
 	// Check pod annotations for explicit priority override (highest priority)
 	if priority, ok := pod.Annotations["scheduling.kubenexus.io/priority-tier"]; ok {

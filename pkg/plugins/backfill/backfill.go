@@ -25,6 +25,8 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
+
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 )
 
 // BackfillScoring implements opportunistic scheduling to maximize cluster utilization
@@ -160,7 +162,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	idlePercent := 100.0 - utilization
 
 	// Determine if this is a backfill pod
-	isBackfillPod := b.isBackfillEligible(pod)
+	isBackfillPod := b.getPreemptibilityFromProfile(state, pod)
 
 	var score int64
 
@@ -209,12 +211,36 @@ func (b *BackfillScoring) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
+// getPreemptibilityFromProfile determines if a pod is preemptible (backfill-eligible)
+// using ProfileClassifier first, then falling back to local detection.
+//
+// Integration with ProfileClassifier:
+//   - ProfileClassifier's IsPreemptible flag provides centralized classification
+//   - Falls back to isBackfillEligible() if ProfileClassifier is unavailable
+//   - Maintains backward compatibility with existing deployments
+func (b *BackfillScoring) getPreemptibilityFromProfile(state framework.CycleState, pod *v1.Pod) bool {
+	// Try ProfileClassifier first
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		klog.V(4).Infof("BackfillScoring: pod %s/%s preemptibility from ProfileClassifier: %v",
+			pod.Namespace, pod.Name, profile.IsPreemptible)
+		return profile.IsPreemptible
+	}
+
+	// Fallback to local classification
+	klog.V(5).Infof("BackfillScoring: ProfileClassifier unavailable for pod %s/%s, using local classification",
+		pod.Namespace, pod.Name)
+	return b.isBackfillEligible(pod)
+}
+
 // isBackfillEligible determines if a pod is eligible for backfill scheduling.
 //
 // A pod is considered backfill-eligible if:
-//  1. It has an explicit backfill label: scheduling.kubenexus.io/backfill: "true"
+//  1. ProfileClassifier marks it as preemptible (profile.IsPreemptible)
+//     OR (fallback if ProfileClassifier unavailable)
+//  2. It has an explicit backfill label: scheduling.kubenexus.io/backfill: "true"
 //     OR
-//  2. It has a low priority (priority <= BackfillPriorityThreshold)
+//  3. It has a low priority (priority <= BackfillPriorityThreshold)
 //
 // Backfill-eligible pods are interruptible and can be preempted by higher-priority
 // workloads via the GangPreemption plugin.

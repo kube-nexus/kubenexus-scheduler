@@ -30,6 +30,7 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
+	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
 	"sigs.k8s.io/scheduler-plugins/pkg/utils"
 )
 
@@ -185,6 +186,24 @@ func (cs *Coscheduling) getPodGroupInfoFromQueued(queuedInfo framework.QueuedPod
 func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleState, p *v1.Pod, nodeInfos []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
 	klog.Infof("PreFilter CALLED for pod %s/%s with labels: %v", p.Namespace, p.Name, p.Labels)
 
+	// Check ProfileClassifier first for gang membership
+	profile, err := profileclassifier.GetProfile(&state)
+	isGang := false
+	if err == nil && profile != nil {
+		isGang = profile.IsGang
+		klog.V(4).Infof("PreFilter: pod %s/%s gang status from ProfileClassifier: %v",
+			p.Namespace, p.Name, isGang)
+		if !isGang {
+			// ProfileClassifier says not a gang, skip gang scheduling
+			klog.V(5).Infof("PreFilter: pod %s/%s not a gang per ProfileClassifier, allowing",
+				p.Namespace, p.Name)
+			return nil, framework.NewStatus(framework.Success, "")
+		}
+	} else {
+		klog.V(5).Infof("PreFilter: ProfileClassifier unavailable for pod %s/%s, using local gang detection",
+			p.Namespace, p.Name)
+	}
+
 	podGroupName, minAvailable, err := utils.GetPodGroupLabels(p)
 	if err != nil {
 		klog.Errorf("PreFilter ERROR getting pod group labels for %s/%s: %v", p.Namespace, p.Name, err)
@@ -193,7 +212,8 @@ func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleStat
 
 	klog.Infof("PreFilter: pod %s/%s has podGroupName=%s, minAvailable=%d", p.Namespace, p.Name, podGroupName, minAvailable)
 
-	if podGroupName == "" || minAvailable <= 1 {
+	// If ProfileClassifier didn't classify it as gang, check local heuristics
+	if !isGang && (podGroupName == "" || minAvailable <= 1) {
 		klog.Infof("PreFilter: pod %s/%s is not part of a gang (name=%s, min=%d), allowing", p.Namespace, p.Name, podGroupName, minAvailable)
 		return nil, framework.NewStatus(framework.Success, "")
 	}

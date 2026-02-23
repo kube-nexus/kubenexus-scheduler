@@ -168,7 +168,7 @@ func TestCalculateUtilizationScore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score := calculateUtilizationScore(tt.utilization)
+			score := calculateUtilizationScore(tt.utilization, "silver")
 			if score != tt.expected {
 				t.Errorf("Expected score %d for %.0f%% utilization, got %d",
 					tt.expected, tt.utilization*100, score)
