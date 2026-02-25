@@ -1,0 +1,143 @@
+---
+# Service for webhook
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubenexus-webhook
+  namespace: kube-system
+  labels:
+    app: kubenexus-webhook
+spec:
+  ports:
+  - port: 443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  selector:
+    app: kubenexus-webhook
+
+---
+# Deployment for webhook
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubenexus-webhook
+  namespace: kube-system
+  labels:
+    app: kubenexus-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kubenexus-webhook
+  template:
+    metadata:
+      labels:
+        app: kubenexus-webhook
+    spec:
+      serviceAccountName: kubenexus-webhook
+      containers:
+      - name: webhook
+        image: kubenexus-webhook:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - --port=8443
+        - --tls-cert-file=/etc/webhook/certs/tls.crt
+        - --tls-key-file=/etc/webhook/certs/tls.key
+        - --v=4
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: webhook-certs
+          mountPath: /etc/webhook/certs
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: kubenexus-webhook-certs
+
+---
+# ServiceAccount for webhook
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubenexus-webhook
+  namespace: kube-system
+
+---
+# ClusterRole for webhook to read namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubenexus-webhook
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for webhook
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubenexus-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubenexus-webhook
+subjects:
+- kind: ServiceAccount
+  name: kubenexus-webhook
+  namespace: kube-system
+
+---
+# MutatingWebhookConfiguration
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: kubenexus-webhook
+webhooks:
+- name: pod-mutation.kubenexus.io
+  clientConfig:
+    service:
+      name: kubenexus-webhook
+      namespace: kube-system
+      path: "/mutate-pod"
+    caBundle: ${CA_BUNDLE}  # Replaced by cert-manager or manual script
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+    scope: "Namespaced"
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  timeoutSeconds: 5
+  failurePolicy: Ignore  # Allow pods to be created even if webhook fails
+  namespaceSelector:
+    matchExpressions:
+    - key: tenant.kubenexus.io/tier
+      operator: Exists  # Only mutate pods in namespaces with tier label

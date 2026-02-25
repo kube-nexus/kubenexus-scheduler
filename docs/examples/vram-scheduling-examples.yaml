@@ -1,0 +1,206 @@
+# VRAMScheduler Examples
+# Demonstrates both DRA and annotation-based approaches for VRAM-aware scheduling
+
+---
+# Example 1: DRA-based approach (Modern Kubernetes v1.26+)
+# Pod with ResourceClaim for GPU + VRAM requirement via annotation hint
+apiVersion: v1
+kind: Pod
+metadata:
+  name: llm-70b-training-dra
+  namespace: ml-team-premium
+  labels:
+    tenant.kubenexus.io/tier: "gold"
+    workload.kubenexus.io/type: "training"
+  annotations:
+    # Annotation as hint for VRAMScheduler (DRA ResourceClaim is primary)
+    scheduling.kubenexus.io/vram-request: "80Gi"
+    scheduling.kubenexus.io/model-size: "70B"
+spec:
+  schedulerName: kubenexus-scheduler
+  # DRA ResourceClaim for GPU
+  resourceClaims:
+  - name: gpu-resources
+    resourceClaimTemplateName: gpu-claim-template
+  containers:
+  - name: trainer
+    image: pytorch/pytorch:latest-cuda
+    command: ["python", "train_llama70b.py"]
+    resources:
+      limits:
+        # DRA claim reference
+        claims:
+        - name: gpu-resources
+      requests:
+        cpu: "16"
+        memory: "128Gi"
+
+---
+# ResourceClaimTemplate for DRA GPU allocation
+apiVersion: resource.k8s.io/v1alpha4
+kind: ResourceClaimTemplate
+metadata:
+  name: gpu-claim-template
+  namespace: ml-team-premium
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        deviceClassName: gpu.example.com
+        allocationMode: ExactCount
+        count: 1
+        constraints:
+        - matchAttribute: memory
+          version: v1
+          expressions:
+          - op: gte
+            values:
+            - "80Gi"
+
+---
+# Example 2: Annotation-based approach (Legacy/Simple)
+# Pod with VRAM requirement via annotation only
+apiVersion: v1
+kind: Pod
+metadata:
+  name: llm-7b-inference
+  namespace: ml-team-standard
+  labels:
+    tenant.kubenexus.io/tier: "silver"
+    workload.kubenexus.io/type: "inference"
+  annotations:
+    # VRAMScheduler reads this for non-DRA clusters
+    scheduling.kubenexus.io/vram-request: "24Gi"
+    scheduling.kubenexus.io/model-size: "7B"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: inference-server
+    image: vllm/vllm-openai:latest
+    env:
+    - name: MODEL_NAME
+      value: "meta-llama/Llama-2-7b-chat-hf"
+    resources:
+      requests:
+        cpu: "8"
+        memory: "32Gi"
+        nvidia.com/gpu: "1"  # Legacy GPU request
+      limits:
+        nvidia.com/gpu: "1"
+
+---
+# Example 3: Multi-GPU Training (DRA + Annotation)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: llm-175b-training
+  namespace: ml-team-premium
+  labels:
+    tenant.kubenexus.io/tier: "gold"
+    workload.kubenexus.io/type: "training"
+    pod-group.scheduling.kubenexus.io/name: "llm-175b-training"
+    pod-group.scheduling.kubenexus.io/min-available: "1"
+  annotations:
+    # 8 GPUs × 80Gi each = 640Gi total
+    scheduling.kubenexus.io/vram-request: "640Gi"
+    scheduling.kubenexus.io/model-size: "175B"
+    numa.scheduling.kubenexus.io/policy: "single-numa"
+spec:
+  schedulerName: kubenexus-scheduler
+  resourceClaims:
+  - name: multi-gpu-resources
+    resourceClaimTemplateName: multi-gpu-claim-template
+  containers:
+  - name: trainer
+    image: pytorch/pytorch:latest-cuda
+    command: ["torchrun", "--nproc_per_node=8", "train_gpt3.py"]
+    resources:
+      limits:
+        claims:
+        - name: multi-gpu-resources
+      requests:
+        cpu: "64"
+        memory: "512Gi"
+
+---
+# Multi-GPU ResourceClaimTemplate
+apiVersion: resource.k8s.io/v1alpha4
+kind: ResourceClaimTemplate
+metadata:
+  name: multi-gpu-claim-template
+  namespace: ml-team-premium
+spec:
+  spec:
+    devices:
+      requests:
+      - name: multi-gpu
+        deviceClassName: gpu.example.com
+        allocationMode: ExactCount
+        count: 8  # Request 8 GPUs
+        constraints:
+        - matchAttribute: memory
+          version: v1
+          expressions:
+          - op: gte
+            values:
+            - "80Gi"  # Each GPU must have ≥80Gi
+        - matchAttribute: topology
+          version: v1
+          expressions:
+          - op: in
+            values:
+            - "nvswitch"  # Prefer NVSwitch topology for multi-GPU
+
+---
+# Example 4: Batch Job with Insufficient VRAM (will be filtered out from L40 nodes)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: llm-405b-training
+  namespace: ml-team-premium
+  labels:
+    tenant.kubenexus.io/tier: "gold"
+  annotations:
+    # 405B model needs ~200Gi per GPU
+    scheduling.kubenexus.io/vram-request: "200Gi"
+    scheduling.kubenexus.io/model-size: "405B"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: trainer
+    image: pytorch/pytorch:latest-cuda
+    resources:
+      requests:
+        nvidia.com/gpu: "1"
+  # This pod will:
+  # - Pass filter on H200 nodes (200Gi ≤ 141Gi) → ❌ Filtered out
+  # - Actually, H200 has 141Gi, so even this is insufficient
+  # - Would need 2× H100-80GB nodes or model parallelism
+
+---
+# Example 5: Small model on Bronze tier (can backfill underutilized GPUs)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: small-inference
+  namespace: ml-team-bronze
+  labels:
+    tenant.kubenexus.io/tier: "bronze"
+    workload.kubenexus.io/type: "inference"
+  annotations:
+    scheduling.kubenexus.io/vram-request: "8Gi"
+    scheduling.kubenexus.io/model-size: "1B"
+spec:
+  schedulerName: kubenexus-scheduler
+  containers:
+  - name: inference
+    image: vllm/vllm-openai:latest
+    resources:
+      requests:
+        nvidia.com/gpu: "1"
+  # Bronze tier has relaxed VRAM thresholds:
+  # - Can use 20-40% of GPU VRAM (poor utilization acceptable)
+  # - Perfect for backfilling underutilized H100 nodes
+  # - 8Gi / 80Gi = 10% utilization → Bronze accepts this
+  # - Gold would reject (requires 98%+ utilization)

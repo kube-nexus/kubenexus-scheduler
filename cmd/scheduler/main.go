@@ -7,18 +7,18 @@ import (
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
 
 	// Register scheduler plugins
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/backfill"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/coscheduling"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/networkfabric"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/numatopology"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/preemption"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcefragmentation"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/resourcereservation"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/tenanthardware"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/topologyspread"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/vramscheduler"
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/workloadaware"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/backfill"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/coscheduling"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/networkfabric"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/numatopology"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/preemption"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/resourcefragmentation"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/resourcereservation"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/tenanthardware"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/topologyspread"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/vramscheduler"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/workloadaware"
 )
 
 func main() {

@@ -11,7 +11,7 @@ Be respectful, inclusive, and professional in all interactions.
 ### 1. Fork and Clone
 
 ```bash
-git clone https://github.com/yourusername/kubenexus-scheduler.git
+git clone https://github.com/kube-nexus/kubenexus-scheduler.git
 cd kubenexus-scheduler
 ```
 

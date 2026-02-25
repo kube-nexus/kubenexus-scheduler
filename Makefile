@@ -40,12 +40,22 @@ generate:
 .PHONY: build
 build:
 	@echo "Building $(BINARY_NAME)..."
-	$(COMMONENVVAR) $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME) cmd/main.go
+	$(COMMONENVVAR) $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME) cmd/scheduler/main.go
+
+.PHONY: build-webhook
+build-webhook:
+	@echo "Building kubenexus-webhook..."
+	$(COMMONENVVAR) $(BUILDENVVAR) go build -ldflags '-w' -o bin/kubenexus-webhook cmd/webhook/main.go
 
 .PHONY: test
 test:
 	@echo "Running tests..."
 	$(BUILDENVVAR) go test -v ./pkg/apis/... ./pkg/plugins/coscheduling/... ./pkg/plugins/resourcereservation/... ./pkg/workload/... ./pkg/utils/... ./pkg/scheduler/...
+
+.PHONY: test-webhook
+test-webhook:
+	@echo "Running webhook tests..."
+	$(BUILDENVVAR) go test -v ./pkg/webhook/...
 
 .PHONY: test-integration
 test-integration:
@@ -66,14 +76,35 @@ test-coverage:
 .PHONY: docker-build
 docker-build:
 	@echo "Building Docker image..."
-	GOOS=linux GOARCH=amd64 $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME)-linux cmd/main.go
+	GOOS=linux GOARCH=amd64 $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME)-linux cmd/scheduler/main.go
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .
+
+.PHONY: docker-build-webhook
+docker-build-webhook:
+	@echo "Building webhook Docker image..."
+	docker build -t kubenexus-webhook:$(VERSION) -f Dockerfile.webhook .
+
+.PHONY: docker-push-webhook
+docker-push-webhook:
+	@echo "Pushing webhook Docker image..."
+	docker push kubenexus-webhook:$(VERSION)
+
+.PHONY: generate-webhook-certs
+generate-webhook-certs:
+	@echo "Generating webhook TLS certificates..."
+	bash hack/generate-webhook-certs.sh
+
+.PHONY: deploy-webhook
+deploy-webhook: generate-webhook-certs
+	@echo "Deploying webhook..."
+	kubectl apply -f deploy/webhook-configured.yaml
 
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."
 	rm -rf bin/
 	rm -f pkg/apis/scheduling/v1alpha1/zz_generated.deepcopy.go
+	rm -f deploy/webhook-configured.yaml
 
 .PHONY: kind-setup
 kind-setup:

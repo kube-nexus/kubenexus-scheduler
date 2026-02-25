@@ -18,8 +18,8 @@ limitations under the License.
 package workload
 
 import (
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
 	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/scheduler-plugins/pkg/utils"
 )
 
 // Type represents the type of workload

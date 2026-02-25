@@ -1,4 +1,4 @@
-module sigs.k8s.io/scheduler-plugins
+module github.com/kube-nexus/kubenexus-scheduler
 
 go 1.25.0
 
