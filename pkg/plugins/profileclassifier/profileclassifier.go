@@ -27,7 +27,7 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/workload"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/workload"
 )
 
 const (

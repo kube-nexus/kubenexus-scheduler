@@ -26,8 +26,8 @@ import (
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/utils"
-	testutil "sigs.k8s.io/scheduler-plugins/test/util"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
+	testutil "github.com/kube-nexus/kubenexus-scheduler/test/util"
 )
 
 // TestName verifies the plugin name

@@ -16,7 +16,7 @@ We appreciate responsible disclosure of security vulnerabilities. If you discove
 ### How to Report
 
 1. **DO NOT** create a public GitHub issue for security vulnerabilities.
-2. Create a private [GitHub Security Advisory](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/security/advisories/new).
+2. Create a private [GitHub Security Advisory](https://github.com/kube-nexus/kubenexus-scheduler/security/advisories/new).
 3. Include the following information in your report:
    - Description of the vulnerability
    - Steps to reproduce the issue
@@ -73,6 +73,6 @@ We aim to:
 ## Contact
 
 For security-related inquiries:
-- GitHub Security Advisories: [Create a private security advisory](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/security/advisories/new)
+- GitHub Security Advisories: [Create a private security advisory](https://github.com/kube-nexus/kubenexus-scheduler/security/advisories/new)
 
 For general questions, please use GitHub Discussions or Issues (non-security topics only).

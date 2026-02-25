@@ -122,7 +122,7 @@
 
 ```bash
 # Clone repo
-git clone https://github.com/gouthamreddykotapalle/kubenexus-scheduler
+git clone https://github.com/kube-nexus/kubenexus-scheduler
 cd kubenexus-scheduler
 
 # Build
@@ -372,6 +372,6 @@ A: YuniKorn is great for multi-tenancy. KubeNexus focuses on GPU/topology intell
 
 ## Support
 
-- **Issues:** https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues
+- **Issues:** https://github.com/kube-nexus/kubenexus-scheduler/issues
 - **Docs:** [docs/](../docs/)
 - **Examples:** [test/e2e/fixtures/](../test/e2e/fixtures/)

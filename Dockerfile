@@ -12,7 +12,7 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o kubenexus-scheduler cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o kubenexus-scheduler cmd/scheduler/main.go
 
 # Final stage
 FROM gcr.io/distroless/static:nonroot

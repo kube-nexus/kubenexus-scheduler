@@ -27,8 +27,8 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
-	testutil "sigs.k8s.io/scheduler-plugins/test/util"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	testutil "github.com/kube-nexus/kubenexus-scheduler/test/util"
 )
 
 const (

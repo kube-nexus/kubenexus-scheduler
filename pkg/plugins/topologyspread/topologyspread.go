@@ -25,8 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	framework "k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
-	"sigs.k8s.io/scheduler-plugins/pkg/workload"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/workload"
 )
 
 // TopologySpreadScorePlugin implements zone-aware spreading for high availability.

@@ -25,7 +25,7 @@ For questions, discussions, and community support:
 
 If you've found a bug:
 
-1. Check if the issue already exists in [GitHub Issues](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues)
+1. Check if the issue already exists in [GitHub Issues](https://github.com/kube-nexus/kubenexus-scheduler/issues)
 2. If not, create a new issue using the [Bug Report template](.github/ISSUE_TEMPLATE/bug_report.md)
 3. Provide as much detail as possible:
    - KubeNexus Scheduler version
@@ -39,7 +39,7 @@ If you've found a bug:
 
 Have an idea for a new feature?
 
-1. Check existing [feature requests](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
+1. Check existing [feature requests](https://github.com/kube-nexus/kubenexus-scheduler/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement)
 2. If it doesn't exist, create a new issue using the [Feature Request template](.github/ISSUE_TEMPLATE/feature_request.md)
 3. Describe:
    - The problem you're trying to solve
@@ -100,7 +100,7 @@ Response times may vary depending on maintainer availability and issue complexit
 
 - **General Questions**: GitHub Discussions
 - **Bug Reports**: GitHub Issues
-- **Security Issues**: Open a [GitHub Security Advisory](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/security/advisories/new)
+- **Security Issues**: Open a [GitHub Security Advisory](https://github.com/kube-nexus/kubenexus-scheduler/security/advisories/new)
 - **Code of Conduct Issues**: Open a private issue on GitHub
 
 ---

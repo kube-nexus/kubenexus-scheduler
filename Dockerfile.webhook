@@ -1,0 +1,25 @@
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /workspace
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
+COPY cmd/ cmd/
+COPY pkg/ pkg/
+
+# Build webhook binary
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o webhook ./cmd/webhook
+
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /
+
+# Copy webhook binary
+COPY --from=builder /workspace/webhook .
+
+USER 65532:65532
+
+ENTRYPOINT ["/webhook"]

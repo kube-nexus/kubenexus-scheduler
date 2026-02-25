@@ -29,11 +29,13 @@ profiles:
     preFilter:
       enabled:
         - name: Coscheduling
+        - name: ResourceReservation  # Creates capacity reservations for gangs
     
     # Filter - node feasibility checks
     filter:
       enabled:
         - name: Coscheduling
+        - name: ResourceReservation  # Checks reserved capacity
         - name: NUMATopology            # NUMA-aware filtering for ML/batch workloads
       disabled:
         - name: "*"
@@ -92,6 +94,7 @@ profiles:
     postBind:
       enabled:
         - name: Coscheduling
+        - name: ResourceReservation  # Cleans up reservations when gang completes
 
 # Profile 3: Gang scheduler (legacy name for compatibility)
 - schedulerName: gang-scheduler
@@ -101,14 +104,16 @@ profiles:
         - name: Coscheduling
       disabled:
         - name: "*"
-    filter:
-      enabled:
-        - name: Coscheduling
-      disabled:
-        - name: "*"
     preFilter:
       enabled:
         - name: Coscheduling
+        - name: ResourceReservation
+    filter:
+      enabled:
+        - name: Coscheduling
+        - name: ResourceReservation
+      disabled:
+        - name: "*"
     preScore:
       enabled:
         - name: Coscheduling      
@@ -133,6 +138,13 @@ profiles:
         - name: Coscheduling
         - name: ResourceReservation
     unreserve:
+      enabled:
+        - name: Coscheduling
+        - name: ResourceReservation
+    postBind:
+      enabled:
+        - name: Coscheduling
+        - name: ResourceReservation
       enabled:
         - name: Coscheduling
         - name: ResourceReservation

@@ -34,7 +34,7 @@ kubectl config use-context kind-kubenexus-test
 
 # Build Docker image
 echo -e "\n${YELLOW}Building scheduler image...${NC}"
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '-w' -o bin/kubenexus-scheduler-linux cmd/main.go
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '-w' -o bin/kubenexus-scheduler-linux cmd/scheduler/main.go
 docker build -t kubenexus-scheduler:latest .
 echo -e "${GREEN}✓ Image built${NC}"
 

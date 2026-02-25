@@ -213,7 +213,7 @@ Runs nightly and on manual trigger:
 gh run list --branch test/add-testing-infrastructure
 
 # Or visit GitHub Actions page in browser
-# https://github.com/YOUR_ORG/kubenexus-scheduler/actions
+# https://github.com/kube-nexus/kubenexus-scheduler/actions
 ```
 
 ---

@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
-	testutil "sigs.k8s.io/scheduler-plugins/test/util"
+	testutil "github.com/kube-nexus/kubenexus-scheduler/test/util"
 )
 
 const (

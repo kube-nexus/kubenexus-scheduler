@@ -30,8 +30,8 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
-	"sigs.k8s.io/scheduler-plugins/pkg/utils"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
 )
 
 // GangPreemption implements gang-aware preemption to solve deadlock scenarios
