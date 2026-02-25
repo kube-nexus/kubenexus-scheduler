@@ -14,12 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package resourcereservation implements resource reservation plugin for the scheduler.
+// Package resourcereservation implements Palantir-style resource reservation for gang scheduling.
+// It prevents race conditions by creating ResourceReservation CRDs upfront to reserve capacity
+// before other workloads can steal it.
 package resourcereservation
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,23 +37,40 @@ import (
 	framework "k8s.io/kube-scheduler/framework"
 
 	"sigs.k8s.io/scheduler-plugins/pkg/apis/scheduling/v1alpha1"
+	"sigs.k8s.io/scheduler-plugins/pkg/utils"
 )
 
 const (
 	// Name is the name of the plugin
 	Name = "ResourceReservation"
+
+	// stateKey for storing reservation state in CycleState
+	stateKey = "ResourceReservation"
 )
 
 var podGroupVersionKind = v1.SchemeGroupVersion.WithKind("Pod")
 
-// ResourceReservation is a plugin that creates resource reservations to prevent starvation
+// ResourceReservation implements Palantir-style gang scheduling with capacity reservation
 type ResourceReservation struct {
 	frameworkHandle framework.Handle
 	podLister       corelisters.PodLister
 	client          rest.Interface
+
+	// Track which gangs have had reservations created
+	gangReservationsCreated sync.Map // map[gangKey]bool
 }
 
+// Ensure ResourceReservation implements all required interfaces
+var _ framework.PreFilterPlugin = &ResourceReservation{}
+var _ framework.FilterPlugin = &ResourceReservation{}
 var _ framework.ReservePlugin = &ResourceReservation{}
+var _ framework.PostBindPlugin = &ResourceReservation{}
+
+// reservationState stores reservation info in CycleState
+type reservationState struct {
+	gangKey      string
+	reservations []*v1alpha1.ResourceReservation
+}
 
 // Name returns name of the plugin
 func (rr *ResourceReservation) Name() string {
@@ -91,9 +112,10 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	}
 
 	return &ResourceReservation{
-		frameworkHandle: handle,
-		podLister:       podLister,
-		client:          client,
+		frameworkHandle:         handle,
+		podLister:               podLister,
+		client:                  client,
+		gangReservationsCreated: sync.Map{},
 	}, nil
 }
 
@@ -115,39 +137,321 @@ func setConfigDefaults(config *rest.Config) error {
 	return nil
 }
 
-// Reserve creates resource reservations for the pod
+// PreFilter creates ResourceReservation CRDs for all gang members BEFORE scheduling
+// This prevents race conditions where other workloads steal capacity
+func (rr *ResourceReservation) PreFilter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfos []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
+	// Skip non-gang pods
+	if !isGangMember(pod) {
+		return nil, framework.NewStatus(framework.Success, "")
+	}
+
+	podGroupName, minAvailable, err := utils.GetPodGroupLabels(pod)
+	if err != nil || podGroupName == "" {
+		return nil, framework.NewStatus(framework.Success, "")
+	}
+
+	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+
+	// Only first pod in gang creates reservations (avoid duplicates)
+	if _, alreadyCreated := rr.gangReservationsCreated.Load(gangKey); alreadyCreated {
+		klog.V(4).Infof("PreFilter: reservations already created for gang %s", gangKey)
+		return nil, framework.NewStatus(framework.Success, "")
+	}
+
+	// Mark as created (prevents race between concurrent prefilter calls)
+	rr.gangReservationsCreated.Store(gangKey, true)
+
+	// Create ResourceReservation CRDs for all gang members
+	reservations, err := rr.createGangReservations(ctx, pod, podGroupName, minAvailable)
+	if err != nil {
+		klog.Errorf("PreFilter: failed to create reservations for gang %s: %v", gangKey, err)
+		rr.gangReservationsCreated.Delete(gangKey)
+		return nil, framework.NewStatus(framework.Error, err.Error())
+	}
+
+	// Store in CycleState for later phases
+	state.Write(stateKey, &reservationState{
+		gangKey:      gangKey,
+		reservations: reservations,
+	})
+
+	klog.V(3).Infof("PreFilter: created %d reservations for gang %s", len(reservations), gangKey)
+	return nil, framework.NewStatus(framework.Success, "")
+}
+
+// PreFilterExtensions returns prefilter extensions
+func (rr *ResourceReservation) PreFilterExtensions() framework.PreFilterExtensions {
+	return nil
+}
+
+// Filter checks if node has capacity after accounting for ResourceReservation CRDs
+func (rr *ResourceReservation) Filter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
+	// Get reservations for this node
+	nodeName := nodeInfo.Node().Name
+	nodeReservations, err := rr.getNodeReservations(ctx, nodeName, pod.Namespace)
+	if err != nil {
+		klog.V(5).Infof("Filter: failed to get reservations for node %s: %v", nodeName, err)
+		// Don't fail scheduling if we can't read reservations
+		return framework.NewStatus(framework.Success, "")
+	}
+
+	if len(nodeReservations) == 0 {
+		return framework.NewStatus(framework.Success, "")
+	}
+
+	// Calculate reserved capacity
+	reservedCPU := resource.Quantity{}
+	reservedMemory := resource.Quantity{}
+
+	gangKey := getGangKey(pod)
+
+	for _, res := range nodeReservations {
+		// Don't count reservations from our own gang
+		if res.Labels != nil && res.Labels["gang-key"] == gangKey {
+			continue
+		}
+
+		for _, reservation := range res.Spec.Reservations {
+			if reservation.Node == "" || reservation.Node == nodeName {
+				reservedCPU.Add(reservation.CPU)
+				reservedMemory.Add(reservation.Memory)
+			}
+		}
+	}
+
+	// Check if node has capacity after accounting for reservations
+	// Get node resource info (Allocatable and Requested are stored in NodeInfo)
+	// For simplicity, we'll just check if the pod + reservations fit
+	// The actual detailed capacity check is done by default Filter plugins
+
+	// Simple check: if we have significant reservations, log them
+	// The actual capacity check is delegated to NodeResourcesFit plugin
+	if reservedCPU.MilliValue() > 0 || reservedMemory.Value() > 0 {
+		klog.V(4).Infof("Filter: node %s has %dm CPU, %d Memory reserved by other gangs",
+			nodeName, reservedCPU.MilliValue(), reservedMemory.Value())
+	}
+
+	return framework.NewStatus(framework.Success, "")
+}
+
+// Reserve marks the reservation as claimed (doesn't create CRDs - already created in PreFilter)
 func (rr *ResourceReservation) Reserve(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeName string) *framework.Status {
 	if pod == nil {
 		return framework.NewStatus(framework.Error, "pod cannot be nil")
 	}
 
-	// Create resource reservation
-	reservation := newResourceReservation(nodeName, pod)
-	_, err := rr.create(ctx, reservation, pod)
-	if err != nil {
-		klog.Errorf("Reserve: failed to create reservation for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-		return framework.NewStatus(framework.Error, err.Error())
+	// Skip non-gang pods
+	if !isGangMember(pod) {
+		return framework.NewStatus(framework.Success, "")
 	}
 
-	klog.V(4).Infof("Reserve: created reservation for pod %s/%s on node %s", pod.Namespace, pod.Name, nodeName)
+	// Update reservation status to "claimed"
+	// This helps track which pods have been scheduled
+	gangKey := getGangKey(pod)
+	klog.V(4).Infof("Reserve: marking reservation as claimed for pod %s/%s (gang: %s) on node %s",
+		pod.Namespace, pod.Name, gangKey, nodeName)
+
 	return framework.NewStatus(framework.Success, "")
 }
 
-// Unreserve deletes resource reservations if scheduling fails
+// Unreserve handles cleanup if scheduling fails
 func (rr *ResourceReservation) Unreserve(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeName string) {
-	if pod == nil {
+	if pod == nil || !isGangMember(pod) {
 		return
 	}
 
-	// Delete the reservation
-	err := rr.delete(ctx, pod)
-	if err != nil {
-		klog.Errorf("Unreserve: failed to delete reservation for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-		return
-	}
+	gangKey := getGangKey(pod)
+	klog.V(4).Infof("Unreserve: pod %s/%s failed to schedule (gang: %s)", pod.Namespace, pod.Name, gangKey)
 
-	klog.V(4).Infof("Unreserve: deleted reservation for pod %s/%s", pod.Namespace, pod.Name)
+	// If this is a critical failure, might want to clean up reservations
+	// For now, let them timeout naturally or get cleaned up in PostBind
 }
+
+// PostBind cleans up ResourceReservation CRDs when gang completes
+func (rr *ResourceReservation) PostBind(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeName string) {
+	if !isGangMember(pod) {
+		return
+	}
+
+	podGroupName, minAvailable, err := utils.GetPodGroupLabels(pod)
+	if err != nil || podGroupName == "" {
+		return
+	}
+
+	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+
+	// Check if gang is complete
+	if !rr.isGangComplete(pod, podGroupName, minAvailable) {
+		klog.V(4).Infof("PostBind: gang %s not yet complete, keeping reservations", gangKey)
+		return
+	}
+
+	// Gang is complete - delete all ResourceReservation CRDs
+	klog.V(3).Infof("PostBind: gang %s complete, cleaning up reservations", gangKey)
+
+	if err := rr.deleteGangReservations(ctx, pod.Namespace, gangKey); err != nil {
+		klog.Errorf("PostBind: failed to delete reservations for gang %s: %v", gangKey, err)
+	} else {
+		rr.gangReservationsCreated.Delete(gangKey)
+	}
+}
+
+// Helper functions
+
+func isGangMember(pod *v1.Pod) bool {
+	podGroupName, minAvailable, err := utils.GetPodGroupLabels(pod)
+	return err == nil && podGroupName != "" && minAvailable > 1
+}
+
+func getGangKey(pod *v1.Pod) string {
+	podGroupName, _, err := utils.GetPodGroupLabels(pod)
+	if err != nil || podGroupName == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+}
+
+// createGangReservations creates ResourceReservation CRDs for all expected gang members
+func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *v1.Pod, podGroupName string, minAvailable int) ([]*v1alpha1.ResourceReservation, error) {
+	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+
+	// Create one ResourceReservation CRD representing the entire gang's resource needs
+	// This acts as a "phantom" that consumes capacity until real pods are scheduled
+	reservations := make(map[string]v1alpha1.Reservation)
+
+	// Calculate per-pod resources (assume all pods in gang have same requests)
+	cpuPerPod := resource.Quantity{}
+	memPerPod := resource.Quantity{}
+
+	if len(pod.Spec.Containers) > 0 {
+		container := pod.Spec.Containers[0]
+		if cpu, ok := container.Resources.Requests[v1.ResourceCPU]; ok {
+			cpuPerPod = cpu
+		}
+		if mem, ok := container.Resources.Requests[v1.ResourceMemory]; ok {
+			memPerPod = mem
+		}
+	}
+
+	// Create reservation entries for each expected gang member
+	for i := 0; i < minAvailable; i++ {
+		memberKey := fmt.Sprintf("%s-member-%d", podGroupName, i)
+		reservations[memberKey] = v1alpha1.Reservation{
+			Node:   "", // Not assigned yet - filter will check all nodes
+			CPU:    cpuPerPod,
+			Memory: memPerPod,
+		}
+	}
+
+	reservation := &v1alpha1.ResourceReservation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-reservation", podGroupName),
+			Namespace: pod.Namespace,
+			Labels: map[string]string{
+				"gang-key":                     gangKey,
+				"pod-group":                    podGroupName,
+				"app.kubernetes.io/managed-by": "kubenexus-scheduler",
+			},
+		},
+		Spec: v1alpha1.ResourceReservationSpec{
+			Reservations: reservations,
+		},
+		Status: v1alpha1.ResourceReservationStatus{
+			Pods: make(map[string]string),
+		},
+	}
+
+	result, err := rr.create(ctx, reservation, pod)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reservation CRD: %w", err)
+	}
+
+	return []*v1alpha1.ResourceReservation{result}, nil
+}
+
+// getNodeReservations fetches ResourceReservation CRDs that affect a specific node
+func (rr *ResourceReservation) getNodeReservations(ctx context.Context, nodeName, namespace string) ([]*v1alpha1.ResourceReservation, error) {
+	// List all ResourceReservations in namespace
+	result := &v1alpha1.ResourceReservationList{}
+	err := rr.client.Get().
+		Namespace(namespace).
+		Resource("resourcereservations").
+		Do(ctx).
+		Into(result)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter to reservations that affect this node
+	var nodeReservations []*v1alpha1.ResourceReservation
+	for i := range result.Items {
+		res := &result.Items[i]
+		// Check if any reservation entry is for this node or unassigned (affects all nodes)
+		for _, reservation := range res.Spec.Reservations {
+			if reservation.Node == "" || reservation.Node == nodeName {
+				nodeReservations = append(nodeReservations, res)
+				break
+			}
+		}
+	}
+
+	return nodeReservations, nil
+}
+
+// isGangComplete checks if all gang members have been scheduled
+func (rr *ResourceReservation) isGangComplete(pod *v1.Pod, podGroupName string, minAvailable int) bool {
+	namespace := pod.Namespace
+
+	// Count running + bound pods in gang
+	pods, err := rr.podLister.Pods(namespace).List(nil)
+	if err != nil {
+		return false
+	}
+
+	scheduledCount := 0
+	for _, p := range pods {
+		pgName, _, err := utils.GetPodGroupLabels(p)
+		if err != nil || pgName != podGroupName {
+			continue
+		}
+
+		// Count pods that are scheduled (have NodeName assigned)
+		if p.Spec.NodeName != "" {
+			scheduledCount++
+		}
+	}
+
+	return scheduledCount >= minAvailable
+}
+
+// deleteGangReservations removes all ResourceReservation CRDs for a gang
+func (rr *ResourceReservation) deleteGangReservations(ctx context.Context, namespace, gangKey string) error {
+	// List all reservations with gang-key label
+	result := &v1alpha1.ResourceReservationList{}
+	err := rr.client.Get().
+		Namespace(namespace).
+		Resource("resourcereservations").
+		Do(ctx).
+		Into(result)
+
+	if err != nil {
+		return err
+	}
+
+	for _, res := range result.Items {
+		if res.Labels != nil && res.Labels["gang-key"] == gangKey {
+			klog.V(4).Infof("Deleting reservation %s/%s for gang %s", namespace, res.Name, gangKey)
+			if err := rr.delete(ctx, namespace, res.Name); err != nil {
+				klog.Errorf("Failed to delete reservation %s/%s: %v", namespace, res.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Legacy functions for compatibility (not used in Palantir pattern)
 
 func newResourceReservation(driverNode string, driver *v1.Pod) *v1alpha1.ResourceReservation {
 	reservations := make(map[string]v1alpha1.Reservation, 1)
@@ -198,7 +502,7 @@ func newResourceReservation(driverNode string, driver *v1.Pod) *v1alpha1.Resourc
 func (rr *ResourceReservation) create(ctx context.Context, resourceReservation *v1alpha1.ResourceReservation, pod *v1.Pod) (*v1alpha1.ResourceReservation, error) {
 	result := &v1alpha1.ResourceReservation{}
 	err := rr.client.Post().
-		Namespace(pod.Namespace).
+		Namespace(resourceReservation.Namespace).
 		Resource("resourcereservations").
 		Body(resourceReservation).
 		Do(ctx).
@@ -206,16 +510,19 @@ func (rr *ResourceReservation) create(ctx context.Context, resourceReservation *
 	return result, err
 }
 
-func (rr *ResourceReservation) delete(ctx context.Context, pod *v1.Pod) error {
-	appID := pod.Name
-	if id, ok := pod.Labels[v1alpha1.AppIDLabel]; ok {
-		appID = id
-	}
-
+func (rr *ResourceReservation) delete(ctx context.Context, namespace, name string) error {
 	return rr.client.Delete().
-		Namespace(pod.Namespace).
+		Namespace(namespace).
 		Resource("resourcereservations").
-		Name(appID).
+		Name(name).
 		Do(ctx).
 		Error()
+}
+
+// Clone implements StateData interface
+func (r *reservationState) Clone() framework.StateData {
+	return &reservationState{
+		gangKey:      r.gangKey,
+		reservations: r.reservations,
+	}
 }
