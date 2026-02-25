@@ -37,8 +37,8 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
-	"sigs.k8s.io/scheduler-plugins/pkg/utils"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
 )
 
 // Coscheduling is a plugin that implements gang scheduling with enterprise features

@@ -24,12 +24,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/webhook"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/webhook"
 )
 
 var (
@@ -90,9 +91,10 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", port),
-		TLSConfig: tlsConfig,
-		Handler:   mux,
+		Addr:              fmt.Sprintf(":%d", port),
+		TLSConfig:         tlsConfig,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
 	}
 
 	go func() {

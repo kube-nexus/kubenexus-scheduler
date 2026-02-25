@@ -904,7 +904,7 @@ We welcome contributions! KubeNexus is designed to be simple, focused, and maint
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_ORG/kubenexus-scheduler.git
+git clone https://github.com/kube-nexus/kubenexus-scheduler.git
 cd kubenexus-scheduler
 
 # Install dependencies
@@ -924,7 +924,7 @@ make build
 
 - **Testing**: Add integration tests for new scenarios
 - **Documentation**: Improve guides and examples
-- **Features**: Implement requested features (see [Issues](https://github.com/YOUR_ORG/kubenexus-scheduler/issues))
+- **Features**: Implement requested features (see [Issues](https://github.com/kube-nexus/kubenexus-scheduler/issues))
 - **Bug fixes**: Fix reported bugs
 - **Performance**: Optimize scheduling algorithms
 
@@ -956,14 +956,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - 🔮 Integration with cluster autoscaler
 - 🔮 v1.0 stability guarantees and production SLA
 
-See [GitHub Issues](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues) for details and discussions.
+See [GitHub Issues](https://github.com/kube-nexus/kubenexus-scheduler/issues) for details and discussions.
 
 ---
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/gouthamreddykotapalle/kubenexus-scheduler/discussions)
+- **Issues**: [GitHub Issues](https://github.com/kube-nexus/kubenexus-scheduler/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/kube-nexus/kubenexus-scheduler/discussions)
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md)
 
 ---

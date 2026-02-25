@@ -484,7 +484,7 @@ See [UPSTREAM_COMPARISON.md](docs/UPSTREAM_COMPARISON.md) for detailed compariso
 **This documentation represents our honest assessment as of Feb 2026.**
 
 If you find claims in other docs that don't match reality, please file an issue:
-- GitHub: https://github.com/kubenexus/kubenexus-scheduler
+- GitHub: https://github.com/kube-nexus/kubenexus-scheduler
 - Clearly mark what's "implemented" vs "roadmap" vs "aspirational"
 
 **We welcome PRs for:**

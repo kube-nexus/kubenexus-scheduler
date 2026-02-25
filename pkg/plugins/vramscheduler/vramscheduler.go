@@ -63,7 +63,7 @@ import (
 	klog "k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/plugins/profileclassifier"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
 )
 
 const (

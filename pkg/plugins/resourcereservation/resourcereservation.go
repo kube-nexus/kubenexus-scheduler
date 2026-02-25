@@ -36,8 +36,8 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
-	"sigs.k8s.io/scheduler-plugins/pkg/apis/scheduling/v1alpha1"
-	"sigs.k8s.io/scheduler-plugins/pkg/utils"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/apis/scheduling/v1alpha1"
+	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
 )
 
 const (
