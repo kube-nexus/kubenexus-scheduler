@@ -19,6 +19,7 @@ package workloadaware
 
 import (
 	"context"
+	"fmt"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -59,7 +60,11 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 	workloadType := w.getWorkloadTypeFromProfile(state, pod)
 
 	// Calculate node utilization (0-100%)
-	utilization := w.calculateNodeUtilization(nodeInfo)
+	utilization, err := w.calculateNodeUtilization(nodeInfo)
+	if err != nil {
+		klog.V(4).Infof("WorkloadAware: %v, deferring scheduling", err)
+		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("informer cache not ready: %v", err))
+	}
 
 	var score int64
 	switch workloadType {
@@ -117,10 +122,10 @@ func (w *WorkloadAware) ScoreExtensions() framework.ScoreExtensions {
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
 // Considers both CPU and memory, weighted equally.
-func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) float64 {
+func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (float64, error) {
 	node := nodeInfo.Node()
 	if node == nil {
-		return 0
+		return 0, nil
 	}
 
 	// Get node allocatable resources
@@ -128,13 +133,18 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) fl
 	allocatableMemory := float64(node.Status.Allocatable.Memory().Value())
 
 	if allocatableCPU == 0 || allocatableMemory == 0 {
-		return 0
+		return 0, nil
+	}
+
+	// Safety check: podLister can be nil during initialization
+	if w.podLister == nil {
+		return 0, fmt.Errorf("podLister not initialized")
 	}
 
 	// Get all pods from the lister and filter by this node
 	allPods, err := w.podLister.List(nil)
 	if err != nil {
-		return 50.0 // Conservative default
+		return 0, fmt.Errorf("failed to list pods: %w", err)
 	}
 
 	requestedCPU := float64(0)
@@ -161,7 +171,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) fl
 		utilization = 100.0
 	}
 
-	return utilization
+	return utilization, nil
 }
 
 // New initializes a new plugin and returns it.

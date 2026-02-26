@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -203,11 +204,11 @@ func (rr *ResourceReservation) Filter(ctx context.Context, state framework.Cycle
 	reservedCPU := resource.Quantity{}
 	reservedMemory := resource.Quantity{}
 
-	gangKey := getGangKey(pod)
+	podGroupName, _, _ := utils.GetPodGroupLabels(pod)
 
 	for _, res := range nodeReservations {
-		// Don't count reservations from our own gang
-		if res.Labels != nil && res.Labels["gang-key"] == gangKey {
+		// Don't count reservations from our own gang (match by namespace + pod-group)
+		if res.Namespace == pod.Namespace && res.Labels != nil && res.Labels["pod-group"] == podGroupName {
 			continue
 		}
 
@@ -313,8 +314,6 @@ func getGangKey(pod *v1.Pod) string {
 
 // createGangReservations creates ResourceReservation CRDs for all expected gang members
 func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *v1.Pod, podGroupName string, minAvailable int) ([]*v1alpha1.ResourceReservation, error) {
-	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
-
 	// Create one ResourceReservation CRD representing the entire gang's resource needs
 	// This acts as a "phantom" that consumes capacity until real pods are scheduled
 	reservations := make(map[string]v1alpha1.Reservation)
@@ -348,7 +347,6 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 			Name:      fmt.Sprintf("%s-reservation", podGroupName),
 			Namespace: pod.Namespace,
 			Labels: map[string]string{
-				"gang-key":                     gangKey,
 				"pod-group":                    podGroupName,
 				"app.kubernetes.io/managed-by": "kubenexus-scheduler",
 			},
@@ -363,6 +361,22 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 
 	result, err := rr.create(ctx, reservation, pod)
 	if err != nil {
+		// If the reservation already exists, fetch it instead of failing
+		// This happens when multiple pods in the gang call PreFilter concurrently
+		if strings.Contains(err.Error(), "already exists") {
+			klog.V(4).Infof("Reservation %s/%s already exists, fetching it", reservation.Namespace, reservation.Name)
+			existing := &v1alpha1.ResourceReservation{}
+			fetchErr := rr.client.Get().
+				Namespace(reservation.Namespace).
+				Resource("resourcereservations").
+				Name(reservation.Name).
+				Do(ctx).
+				Into(existing)
+			if fetchErr != nil {
+				return nil, fmt.Errorf("reservation exists but failed to fetch: %w", fetchErr)
+			}
+			return []*v1alpha1.ResourceReservation{existing}, nil
+		}
 		return nil, fmt.Errorf("failed to create reservation CRD: %w", err)
 	}
 
@@ -427,7 +441,14 @@ func (rr *ResourceReservation) isGangComplete(pod *v1.Pod, podGroupName string, 
 
 // deleteGangReservations removes all ResourceReservation CRDs for a gang
 func (rr *ResourceReservation) deleteGangReservations(ctx context.Context, namespace, gangKey string) error {
-	// List all reservations with gang-key label
+	// Extract pod group name from gangKey (format: namespace/podGroupName)
+	parts := strings.Split(gangKey, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid gangKey format: %s", gangKey)
+	}
+	podGroupName := parts[1]
+
+	// List all reservations with pod-group label
 	result := &v1alpha1.ResourceReservationList{}
 	err := rr.client.Get().
 		Namespace(namespace).
@@ -440,7 +461,7 @@ func (rr *ResourceReservation) deleteGangReservations(ctx context.Context, names
 	}
 
 	for _, res := range result.Items {
-		if res.Labels != nil && res.Labels["gang-key"] == gangKey {
+		if res.Labels != nil && res.Labels["pod-group"] == podGroupName {
 			klog.V(4).Infof("Deleting reservation %s/%s for gang %s", namespace, res.Name, gangKey)
 			if err := rr.delete(ctx, namespace, res.Name); err != nil {
 				klog.Errorf("Failed to delete reservation %s/%s: %v", namespace, res.Name, err)

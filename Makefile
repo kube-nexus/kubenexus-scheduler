@@ -79,6 +79,27 @@ docker-build:
 	GOOS=linux GOARCH=amd64 $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME)-linux cmd/scheduler/main.go
 	docker build -t $(DOCKER_IMAGE):$(VERSION) .
 
+.PHONY: dockersimple
+dockersimple:
+	@echo "Building scheduler with Dockerfile.simple..."
+	GOOS=linux GOARCH=amd64 $(BUILDENVVAR) go build -ldflags '-w' -o bin/$(BINARY_NAME)-linux cmd/scheduler/main.go
+	cp bin/$(BINARY_NAME)-linux $(BINARY_NAME)
+	docker build -t $(DOCKER_IMAGE):latest -f Dockerfile.simple .
+	rm -f $(BINARY_NAME)
+
+.PHONY: kind-load
+kind-load:
+	@echo "Loading scheduler image into kind cluster..."
+	kind load docker-image $(DOCKER_IMAGE):latest --name kubenexus-test
+
+.PHONY: quick-deploy
+quick-deploy: dockersimple kind-load
+	@echo "Restarting scheduler pod..."
+	kubectl delete pod -n kubenexus-system -l app=kubenexus-scheduler || true
+	@echo "Waiting for scheduler to be ready..."
+	@sleep 10
+	kubectl get pods -n kubenexus-system
+
 .PHONY: docker-build-webhook
 docker-build-webhook:
 	@echo "Building webhook Docker image..."
