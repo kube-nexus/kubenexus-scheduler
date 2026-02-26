@@ -110,7 +110,16 @@ func (b *BackfillScoring) Name() string {
 //
 // This creates a natural separation where backfill pods use underutilized nodes
 // while regular workloads pack onto fewer nodes for better efficiency.
-func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (score int64, status *framework.Status) {
+	// Use named return values and defer/recover to handle panics gracefully
+	defer func() {
+		if r := recover(); r != nil {
+			klog.V(4).Infof("BackfillScoring: recovered from panic in Score: %v", r)
+			score = MaxNodeScore / 2 // Return neutral score on panic
+			status = framework.NewStatus(framework.Success, "")
+		}
+	}()
+
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Error, "node is nil")
@@ -125,10 +134,17 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
 
+	// Safety check: podLister can be nil during initialization
+	if b.podLister == nil {
+		klog.V(5).Infof("BackfillScoring: podLister not initialized, using neutral score")
+		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
+	}
+
 	// Get currently requested resources on the node
 	// Sum up all pod requests on this node
 	allPods, err := b.podLister.List(nil)
 	if err != nil {
+		klog.V(4).Infof("BackfillScoring: failed to list pods: %v, using neutral score", err)
 		// On error, return neutral score
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
@@ -163,8 +179,6 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	// Determine if this is a backfill pod
 	isBackfillPod := b.getPreemptibilityFromProfile(state, pod)
-
-	var score int64
 
 	if isBackfillPod {
 		// BACKFILL POD STRATEGY: Prefer nodes with MORE idle resources

@@ -1,9 +1,11 @@
-apiVersion: kubescheduler.config.k8s.io/v1alpha2
+apiVersion: kubescheduler.config.k8s.io/v1
 kind: KubeSchedulerConfiguration
 leaderElection:
-  leaderElect: false
+  leaderElect: true
+  resourceName: kubenexus-scheduler
+  resourceNamespace: kubenexus-system
 clientConnection:
-  #kubeconfig: "REPLACE_ME_WITH_KUBE_CONFIG_PATH" #not-required, will use in-cluster config (default API)
+  kubeconfig: ""
 
 profiles:
 # Profile 1: Default scheduler with all KubeNexus plugins
@@ -34,16 +36,12 @@ profiles:
     # Filter - node feasibility checks
     filter:
       enabled:
-        - name: Coscheduling
         - name: ResourceReservation  # Checks reserved capacity
         - name: NUMATopology            # NUMA-aware filtering for ML/batch workloads
-      disabled:
-        - name: "*"
     
     # PreScore - prepare for scoring
     preScore:
-      enabled:
-        - name: Coscheduling
+      enabled: []
     
     # Score - workload-aware node scoring
     score:
@@ -51,22 +49,13 @@ profiles:
         - name: WorkloadAwareScoring   # Adaptive: bin packing for batch, spreading for services
         - name: BackfillScoring         # Opportunistic: fills idle capacity with low-priority pods
         - name: NUMATopology            # NUMA-aware scoring for optimal memory bandwidth
-        - name: TopologySpreadScoring   # Zone-aware spreading for high availability
-        - name: Coscheduling            # Gang scheduling preferences
-      disabled:
-        - name: "*"
+        - name: TopologyScoring         # Zone-aware spreading for high availability
     
     # Reserve - resource reservation
     reserve:
       enabled:
         - name: Coscheduling
         - name: ResourceReservation  # Prevents resource starvation
-    
-    # Unreserve - cleanup on scheduling failure
-    unreserve:
-      enabled:
-        - name: Coscheduling
-        - name: ResourceReservation
     
     # Permit - delay scheduling until gang is ready
     permit:
@@ -77,24 +66,6 @@ profiles:
     postFilter:
       enabled:
         - name: GangPreemption       # Preempts lower priority gang pods
-    
-    # PreBind - final checks before binding
-    preBind:
-      enabled:
-        - name: Coscheduling
-    
-    # Bind - pod to node binding
-    bind:
-      enabled:
-        - name: Coscheduling
-      disabled:
-        - name: "*"
-    
-    # PostBind - cleanup and state updates
-    postBind:
-      enabled:
-        - name: Coscheduling
-        - name: ResourceReservation  # Cleans up reservations when gang completes
 
 # Profile 3: Gang scheduler (legacy name for compatibility)
 - schedulerName: gang-scheduler
@@ -110,41 +81,11 @@ profiles:
         - name: ResourceReservation
     filter:
       enabled:
-        - name: Coscheduling
         - name: ResourceReservation
-      disabled:
-        - name: "*"
-    preScore:
-      enabled:
-        - name: Coscheduling      
-    score:
-      enabled:
-        - name: Coscheduling
-      disabled:
-        - name: "*"         
-    permit:
-      enabled:
-        - name: Coscheduling
-    preBind:
-      enabled:
-        - name: Coscheduling
-    bind:
-      enabled:
-        - name: Coscheduling
-      disabled:
-        - name: "*"
     reserve:
       enabled:
         - name: Coscheduling
-        - name: ResourceReservation
-    unreserve:
+        - name: ResourceReservation         
+    permit:
       enabled:
         - name: Coscheduling
-        - name: ResourceReservation
-    postBind:
-      enabled:
-        - name: Coscheduling
-        - name: ResourceReservation
-      enabled:
-        - name: Coscheduling
-        - name: ResourceReservation
