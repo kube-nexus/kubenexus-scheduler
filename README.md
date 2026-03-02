@@ -6,9 +6,12 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)]()
 
-**Multi-Tenant Heterogeneous Workload Scheduler for Kubernetes**
+**Workload-Aware, Topology-Optimized Scheduler for Heterogeneous Kubernetes Clusters**
 
-Stop manually configuring pod specs. KubeNexus automatically routes Gold→H100, Bronze→L40, bin-packs training jobs, and spreads services—all through intelligent 3-axis placement optimization.
+KubeNexus optimizes last-mile placement across CPU and GPU fleets.
+It adapts placement strategy (pack vs spread) based on workload intent and preserves accelerator topology (NVLink/NUMA) to prevent fragmentation and tenant interference.
+
+Works standalone or layered with Kueue for admission and fairness.
 
 > **⚠️ Beta Status**: Ready for testing in dev/staging. Production use should be carefully evaluated.
 
@@ -16,12 +19,15 @@ Stop manually configuring pod specs. KubeNexus automatically routes Gold→H100,
 
 ## Positioning
 
-**KubeNexus focuses on last-mile placement quality**: topology locality, fragmentation prevention, and workload-intent strategies.
+**KubeNexus focuses on placement quality independent of admission control:**: 
+- Topology locality (NUMA, NVLink, GPU island preservation)
+- Fragmentation prevention (protect contiguous accelerator sets)
+- Workload-intent strategies (stateless, batch, training, inference)
+- Interference control in multi-tenant clusters
 
-- **Standalone**: Provides workload-aware placement + topology/interference control for mixed tenants and mixed intents using native Kubernetes primitives (PriorityClasses, ResourceQuotas, namespaces)
-- **With Kueue**: Kueue provides admission/fairness/flavors; KubeNexus provides placement optimization within admitted intent
+**Standalone**: Provides workload-aware placement and topology/interference control using native Kubernetes primitives (PriorityClasses, ResourceQuotas, namespaces).
 
-For multi-tenant fairness and admission control, KubeNexus can be layered with [Kueue](https://kueue.sigs.k8s.io/), while remaining fully usable standalone.
+**With Kueue**: [Kueue](https://kueue.sigs.k8s.io/) handles admission control, quotas, and hardware flavors.KubeNexus optimizes node-level and topology-aware placement within admitted intent. KubeNexus complements Kueue and remains fully usable standalone.
 
 ---
 
