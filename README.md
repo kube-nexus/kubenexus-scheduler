@@ -19,15 +19,18 @@ Works standalone or layered with Kueue for admission and fairness.
 
 ## Positioning
 
-**KubeNexus focuses on placement quality independent of admission control:**: 
-- Topology locality (NUMA, NVLink, GPU island preservation)
-- Fragmentation prevention (protect contiguous accelerator sets)
-- Workload-intent strategies (stateless, batch, training, inference)
-- Interference control in multi-tenant clusters
+**KubeNexus provides topology- and fragmentation-aware placement for multi-tenant GPU fleets under mixed workload intents.**
 
-**Standalone**: Provides workload-aware placement and topology/interference control using native Kubernetes primitives (PriorityClasses, ResourceQuotas, namespaces).
+**The differentiator**: Even after Kueue constrains nodes via FlavorFungibility, critical placement decisions remain:
 
-**With Kueue**: [Kueue](https://kueue.sigs.k8s.io/) handles admission control, quotas, and hardware flavors.KubeNexus optimizes node-level and topology-aware placement within admitted intent. KubeNexus complements Kueue and remains fully usable standalone.
+- **Heterogeneity within allowed nodes**: GPU contiguity (8 free vs 6+2 fragmented), NVSwitch island locality, NUMA/NIC paths
+- **Workload-intent heterogeneity**: Training (pack + preserve islands) vs Inference (spread + stability) vs Batch (opportunistic)
+- **Fragmentation prevention**: Node affinity can't express "prefer nodes where 8 GPUs are contiguous AND preserve future 8-GPU placements"
+
+**Layered architecture:**
+
+- **Standalone**: Workload-aware placement + topology/interference control using native Kubernetes primitives (PriorityClasses, ResourceQuotas, namespaces)
+- **With Kueue**: [Kueue](https://kueue.sigs.k8s.io/) handles admission/quotas/flavors; KubeNexus optimizes node-level and topology-aware placement within admitted intent
 
 ---
 
@@ -161,6 +164,26 @@ Keeps distributed training within NVSwitch/NVLink domains (100 score) vs Etherne
 - **Preemption hierarchy**: Gold can preempt Silver/Bronze
 - **Starvation prevention**: Age-based priority boost after 60s
 - **Backfill placement**: Bronze uses idle Gold capacity (preempted when Gold returns)
+
+**Example: Fragmentation interference AFTER admission**
+
+```yaml
+# Scenario: Both tenants admitted by Kueue (quotas satisfied ✅)
+# Tenant A: 100x 1-GPU inference pods
+# Tenant B: 10x 8-GPU training jobs
+
+# Without KubeNexus (after Kueue admits both):
+# - Default scheduler places A's 1-GPU pods randomly
+# - Result: Every node has 1-2 free GPUs, none has 8 contiguous
+# - B's jobs fail to schedule despite passing quota check
+
+# With KubeNexus (after Kueue admits both):
+# - A's 1-GPU pods: Fill nodes completely OR leave clean 8-GPU islands
+# - B's 8-GPU jobs: Find preserved contiguous GPU sets
+# - Both tenants place successfully
+```
+
+**Multi-tenancy at the placement-quality layer**: Kueue ensures fair admission; KubeNexus prevents topology fragmentation that breaks feasibility.
 
 **With Kueue integration** (adds admission control):
 
