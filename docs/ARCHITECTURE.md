@@ -161,6 +161,8 @@ See [Spark Integration Guide](SPARK_OPERATOR_INTEGRATION.md) for details.
 
 ## Multi-Tenant Fairness
 
+> **Note**: KubeNexus handles *placement-time* fairness (priority, preemption, starvation prevention). For *admission-time* fairness (DRF, weighted fair share, global quotas), use [Kueue](https://kueue.sigs.k8s.io/). See [FEATURES.md](FEATURES.md#multi-tenant-fairness) for the division of responsibilities.
+
 ### Tenant Hierarchy
 
 ```
