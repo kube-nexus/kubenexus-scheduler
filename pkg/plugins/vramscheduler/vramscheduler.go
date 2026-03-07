@@ -329,7 +329,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 				"gpusRequested", gpusRequested,
 				"topologyBonus", topologyBonus,
 				"finalScore", score)
-			schedulermetrics.TopologyQualityScore.WithLabelValues(node.Name, "multi_gpu").Observe(float64(score))
+			schedulermetrics.TopologyQualityScore.WithLabelValues("multi_gpu").Observe(float64(score))
 		}
 	}
 
@@ -709,7 +709,7 @@ func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (
 				"source", "DRA",
 				"gpuCount", len(devices),
 				"vramPerGPU", formatBytes(vramPerGPU))
-			schedulermetrics.DataSourceUsage.WithLabelValues("DRA", node.Name).Inc()
+			schedulermetrics.DataSourceUsage.WithLabelValues("DRA").Inc()
 			return vramPerGPU, devices
 		}
 		klog.V(5).InfoS("DRA ResourceSlices not available, trying NFD labels",
@@ -730,7 +730,7 @@ func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (
 			"source", "NFD",
 			"gpuCount", len(devices),
 			"vramPerGPU", formatBytes(vramPerGPU))
-		schedulermetrics.DataSourceUsage.WithLabelValues("NFD", node.Name).Inc()
+		schedulermetrics.DataSourceUsage.WithLabelValues("NFD").Inc()
 		return vramPerGPU, devices
 	}
 	klog.V(5).InfoS("NFD labels not found, falling back to manual labels",
@@ -743,7 +743,7 @@ func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (
 	klog.V(4).InfoS("⚠️  Using GPU topology from manual node labels (operator-managed)",
 		"node", node.Name,
 		"source", "manual-labels")
-	schedulermetrics.DataSourceUsage.WithLabelValues("manual_labels", node.Name).Inc()
+	schedulermetrics.DataSourceUsage.WithLabelValues("manual_labels").Inc()
 	vramPerGPU, gpuCount := getNodeGPUVRAMFromLabels(node)
 	devices = make([]GPUDevice, gpuCount)
 	for i := range devices {

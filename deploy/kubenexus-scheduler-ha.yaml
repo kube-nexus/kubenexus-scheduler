@@ -121,6 +121,10 @@ spec:
     spec:
       serviceAccountName: kubenexus-scheduler
       priorityClassName: system-cluster-critical
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: kubenexus-scheduler
         image: kubenexus-scheduler:latest
@@ -132,6 +136,11 @@ spec:
         - --leader-elect-resource-name=kubenexus-scheduler
         - --leader-elect-resource-namespace=kube-system
         - --v=3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         resources:
           requests:
             cpu: 100m
@@ -181,3 +190,14 @@ spec:
     port: 10259
     protocol: TCP
     targetPort: 10259
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kubenexus-scheduler
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      component: kubenexus-scheduler

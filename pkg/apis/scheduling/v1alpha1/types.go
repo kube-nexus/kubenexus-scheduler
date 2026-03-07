@@ -58,7 +58,18 @@ type Reservation struct {
 type ResourceReservationStatus struct {
 	// Pods maps pod names to their current state
 	Pods map[string]string `json:"pods,omitempty"`
+
+	// Conditions represent the latest available observations of the reservation's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+const (
+	// ConditionReservationActive indicates the reservation is actively holding resources
+	ConditionReservationActive = "ReservationActive"
+
+	// ConditionGangComplete indicates all gang members have been scheduled
+	ConditionGangComplete = "GangComplete"
+)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 

@@ -53,9 +53,38 @@ spec:
                   additionalProperties:
                     type: string
                   description: Maps pod names to their current state
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                        description: Type of condition (ReservationActive, GangComplete)
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
       subresources:
         status: {}
       additionalPrinterColumns:
+        - name: PodGroup
+          type: string
+          jsonPath: .metadata.labels.pod-group
+        - name: Reservations
+          type: integer
+          jsonPath: .spec.reservations
+          description: Number of member reservations
+          priority: 1
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp

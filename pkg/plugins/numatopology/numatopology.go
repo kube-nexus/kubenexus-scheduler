@@ -185,14 +185,14 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 
 	if policy == NUMAPolicyNone {
 		// NUMA awareness disabled for this pod
-		klog.V(5).Infof("NUMATopology: pod %s/%s has NUMA policy 'none', skipping filter", pod.Namespace, pod.Name)
+		klog.V(5).InfoS("NUMATopology: pod has NUMA policy 'none', skipping filter", "pod", klog.KObj(pod))
 		return framework.NewStatus(framework.Success, "")
 	}
 
 	if policy == NUMAPolicyBestEffort {
 		// Best effort policy - don't filter, just score
-		klog.V(5).Infof("NUMATopology: pod %s/%s has best-effort NUMA policy, allowing node %s",
-			pod.Namespace, pod.Name, node.Name)
+		klog.V(5).InfoS("NUMATopology: pod has best-effort NUMA policy, allowing node",
+			"pod", klog.KObj(pod), "node", node.Name)
 		return framework.NewStatus(framework.Success, "")
 	}
 
@@ -200,13 +200,13 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 	numaNodes, err := n.parseNUMATopology(node)
 	if err != nil {
 		// Node has no NUMA topology information, allow it (assume single NUMA or kubelet will handle)
-		klog.V(4).Infof("NUMATopology: node %s has no NUMA topology labels: %v", node.Name, err)
+		klog.V(4).InfoS("NUMATopology: node has no NUMA topology labels", "node", node.Name, "err", err)
 		return framework.NewStatus(framework.Success, "")
 	}
 
 	if len(numaNodes) <= 1 {
 		// Node has only 1 NUMA node (or none), no cross-NUMA risk
-		klog.V(5).Infof("NUMATopology: node %s has %d NUMA node(s), allowing", node.Name, len(numaNodes))
+		klog.V(5).InfoS("NUMATopology: node has single NUMA node, allowing", "node", node.Name, "numaNodeCount", len(numaNodes))
 		return framework.NewStatus(framework.Success, "")
 	}
 
@@ -216,8 +216,8 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 	// Check if pod fits in any single NUMA node
 	for _, numa := range numaNodes {
 		if numa.AvailableCPUs >= int(podCPU) && numa.AvailableMemory >= podMemory {
-			klog.V(4).Infof("NUMATopology: pod %s/%s (cpu=%d, mem=%dGB) fits in NUMA node %d on %s",
-				pod.Namespace, pod.Name, podCPU, podMemory/(1024*1024*1024), numa.ID, node.Name)
+			klog.V(4).InfoS("NUMATopology: pod fits in NUMA node",
+				"pod", klog.KObj(pod), "cpu", podCPU, "memoryGB", podMemory/(1024*1024*1024), "numaNode", numa.ID, "node", node.Name)
 			return framework.NewStatus(framework.Success, "")
 		}
 	}
@@ -226,8 +226,8 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 	reason := fmt.Sprintf("pod requires %d CPUs and %d bytes memory, but no single NUMA node has sufficient capacity on node %s",
 		podCPU, podMemory, node.Name)
 
-	klog.V(3).Infof("NUMATopology: rejecting node %s for pod %s/%s: %s",
-		node.Name, pod.Namespace, pod.Name, reason)
+	klog.V(3).InfoS("NUMATopology: rejecting node for pod",
+		"node", node.Name, "pod", klog.KObj(pod), "reason", reason)
 
 	return framework.NewStatus(framework.Unschedulable, reason)
 }
@@ -295,7 +295,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 
 		// Skip if in avoid list
 		if n.isNUMAInList(numa.ID, avoidNUMAs) {
-			klog.V(5).Infof("Skipping NUMA node %d on %s due to anti-affinity", numa.ID, node.Name)
+			klog.V(5).InfoS("Skipping NUMA node due to anti-affinity", "numaNode", numa.ID, "node", node.Name)
 			continue
 		}
 
@@ -315,7 +315,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		// Boost if in preferred NUMA list
 		if n.isNUMAInList(numa.ID, preferredNUMAs) {
 			fitScore = math.Min(100.0, fitScore*1.2) // 20% boost
-			klog.V(5).Infof("Boosting NUMA node %d on %s due to affinity", numa.ID, node.Name)
+			klog.V(5).InfoS("Boosting NUMA node due to affinity", "numaNode", numa.ID, "node", node.Name)
 		}
 
 		// 2. MEMORY BANDWIDTH SCORE (25%)
@@ -328,8 +328,8 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 			if memBandwidthScore < 0 {
 				memBandwidthScore = 0
 			}
-			schedulermetrics.NumaMemoryBandwidthPressure.WithLabelValues(node.Name, strconv.Itoa(numa.ID)).Set(bandwidthUtilization)
-			klog.V(5).Infof("Memory bandwidth score for NUMA %d on %s: %.2f", numa.ID, node.Name, memBandwidthScore)
+			schedulermetrics.NumaMemoryBandwidthPressure.WithLabelValues(categorizePressure(bandwidthUtilization)).Set(bandwidthUtilization)
+			klog.V(5).InfoS("Memory bandwidth score calculated", "numaNode", numa.ID, "node", node.Name, "score", memBandwidthScore)
 		}
 
 		// 3. NUMA DISTANCE SCORE (20%)
@@ -347,21 +347,21 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		if totalScore > bestScore {
 			bestScore = totalScore
 			bestNUMAID = numa.ID
-			schedulermetrics.NumaFitQuality.WithLabelValues(node.Name, strconv.Itoa(numa.ID)).Observe(fitScore)
+			schedulermetrics.NumaFitQuality.WithLabelValues(policy).Observe(fitScore)
 		}
 	}
 
 	if bestNUMAID == -1 {
 		// Pod doesn't fit in any NUMA node (only possible with best-effort policy)
 		// Return low score (but not zero - still schedulable)
-		klog.V(4).Infof("NUMATopology: pod %s/%s requires cross-NUMA on node %s (best-effort policy)",
-			pod.Namespace, pod.Name, node.Name)
+		klog.V(4).InfoS("NUMATopology: pod requires cross-NUMA placement (best-effort policy)",
+			"pod", klog.KObj(pod), "node", node.Name)
 		schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "cross_numa", workload.ClassifyPod(pod).String()).Inc()
 		return MaxNodeScore / 4, framework.NewStatus(framework.Success, "")
 	}
 
-	klog.V(4).Infof("NUMATopology: pod %s/%s best fits in NUMA %d on node %s (score=%.2f, components: fit=%.2f, mem=%.2f, dist=%.2f, gang=%.2f)",
-		pod.Namespace, pod.Name, bestNUMAID, node.Name, bestScore, fitScore, memBandwidthScore, distanceScore, gangScore)
+	klog.V(4).InfoS("NUMATopology: pod best fits in NUMA node",
+		"pod", klog.KObj(pod), "numaNode", bestNUMAID, "node", node.Name, "score", bestScore, "fitScore", fitScore, "memBandwidthScore", memBandwidthScore, "distanceScore", distanceScore, "gangScore", gangScore)
 
 	// Track successful single-NUMA placement
 	schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "single_numa", workload.ClassifyPod(pod).String()).Inc()
@@ -400,14 +400,14 @@ func (n *NUMATopology) getNUMAPolicy(pod *v1.Pod) string {
 
 	if workloadType == workload.TypeBatch {
 		// Batch/ML workloads benefit most from NUMA locality
-		klog.V(5).Infof("NUMATopology: pod %s/%s classified as batch, using single-numa-node policy",
-			pod.Namespace, pod.Name)
+		klog.V(5).InfoS("NUMATopology: pod classified as batch, using single-numa-node policy",
+			"pod", klog.KObj(pod))
 		return DefaultBatchNUMAPolicy
 	}
 
 	// Services don't typically need NUMA awareness (they spread anyway)
-	klog.V(5).Infof("NUMATopology: pod %s/%s classified as service, using none policy",
-		pod.Namespace, pod.Name)
+	klog.V(5).InfoS("NUMATopology: pod classified as service, using none policy",
+		"pod", klog.KObj(pod))
 	return NUMAPolicyNone
 }
 
@@ -441,7 +441,7 @@ func (n *NUMATopology) parseNUMATopology(node *v1.Node) ([]NUMANode, error) {
 		cpuLabel := fmt.Sprintf("numa.kubenexus.io/node-%d-cpus", i)
 		cpusStr, exists := node.Labels[cpuLabel]
 		if !exists {
-			klog.V(4).Infof("Node %s missing label %s, skipping NUMA node %d", node.Name, cpuLabel, i)
+			klog.V(4).InfoS("Node missing NUMA CPU label, skipping NUMA node", "node", node.Name, "label", cpuLabel, "numaNode", i)
 			continue
 		}
 
@@ -455,7 +455,7 @@ func (n *NUMATopology) parseNUMATopology(node *v1.Node) ([]NUMANode, error) {
 		memLabel := fmt.Sprintf("numa.kubenexus.io/node-%d-memory", i)
 		memStr, exists := node.Labels[memLabel]
 		if !exists {
-			klog.V(4).Infof("Node %s missing label %s, skipping NUMA node %d", node.Name, memLabel, i)
+			klog.V(4).InfoS("Node missing NUMA memory label, skipping NUMA node", "node", node.Name, "label", memLabel, "numaNode", i)
 			continue
 		}
 
@@ -564,7 +564,7 @@ func (n *NUMATopology) getPodResourceRequests(pod *v1.Pod) (int64, int64) {
 
 // New initializes a new NUMATopology plugin and returns it.
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	klog.V(3).Infof("NUMATopology plugin initialized with advanced features: gang scheduling, affinity/anti-affinity, memory bandwidth optimization")
+	klog.V(3).InfoS("NUMATopology plugin initialized with advanced features: gang scheduling, affinity/anti-affinity, memory bandwidth optimization")
 	return &NUMATopology{
 		handle:    handle,
 		gangState: make(map[string]*GangNUMAState),
@@ -779,6 +779,18 @@ func (n *NUMATopology) recordGangPlacement(pod *v1.Pod, numaID int, node *v1.Nod
 	podKey := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 	gangState.AssignedMembers[podKey] = numaID
 
-	klog.V(4).Infof("Recorded gang placement: %s -> NUMA %d on %s (policy=%s, total members=%d)",
-		podKey, numaID, node.Name, gangState.SpreadPolicy, len(gangState.AssignedMembers))
+	klog.V(4).InfoS("Recorded gang placement",
+		"podKey", podKey, "numaNode", numaID, "node", node.Name, "policy", gangState.SpreadPolicy, "totalMembers", len(gangState.AssignedMembers))
+}
+
+// categorizePressure converts a bandwidth utilization percentage into a bounded label
+func categorizePressure(utilization float64) string {
+	switch {
+	case utilization >= 80:
+		return "high"
+	case utilization >= 50:
+		return "medium"
+	default:
+		return "low"
+	}
 }
