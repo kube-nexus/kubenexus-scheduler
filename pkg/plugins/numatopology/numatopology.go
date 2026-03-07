@@ -29,6 +29,7 @@ import (
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
+	schedulermetrics "github.com/kube-nexus/kubenexus-scheduler/pkg/scheduler"
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/workload"
 )
 
@@ -258,6 +259,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 
 	if policy == NUMAPolicyNone {
 		// No NUMA awareness, return neutral score
+		schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "none", workload.ClassifyPod(pod).String()).Inc()
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
 
@@ -265,6 +267,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 	numaNodes, err := n.parseNUMATopology(node)
 	if err != nil || len(numaNodes) <= 1 {
 		// No NUMA info or single NUMA node, return neutral score
+		schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "no_numa_info", workload.ClassifyPod(pod).String()).Inc()
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
 
@@ -325,6 +328,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 			if memBandwidthScore < 0 {
 				memBandwidthScore = 0
 			}
+			schedulermetrics.NumaMemoryBandwidthPressure.WithLabelValues(node.Name, strconv.Itoa(numa.ID)).Set(bandwidthUtilization)
 			klog.V(5).Infof("Memory bandwidth score for NUMA %d on %s: %.2f", numa.ID, node.Name, memBandwidthScore)
 		}
 
@@ -343,6 +347,7 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		if totalScore > bestScore {
 			bestScore = totalScore
 			bestNUMAID = numa.ID
+			schedulermetrics.NumaFitQuality.WithLabelValues(node.Name, strconv.Itoa(numa.ID)).Observe(fitScore)
 		}
 	}
 
@@ -351,11 +356,15 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		// Return low score (but not zero - still schedulable)
 		klog.V(4).Infof("NUMATopology: pod %s/%s requires cross-NUMA on node %s (best-effort policy)",
 			pod.Namespace, pod.Name, node.Name)
+		schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "cross_numa", workload.ClassifyPod(pod).String()).Inc()
 		return MaxNodeScore / 4, framework.NewStatus(framework.Success, "")
 	}
 
 	klog.V(4).Infof("NUMATopology: pod %s/%s best fits in NUMA %d on node %s (score=%.2f, components: fit=%.2f, mem=%.2f, dist=%.2f, gang=%.2f)",
 		pod.Namespace, pod.Name, bestNUMAID, node.Name, bestScore, fitScore, memBandwidthScore, distanceScore, gangScore)
+
+	// Track successful single-NUMA placement
+	schedulermetrics.NumaPlacementDecisions.WithLabelValues(policy, "single_numa", workload.ClassifyPod(pod).String()).Inc()
 
 	// Track gang placement
 	n.recordGangPlacement(pod, bestNUMAID, node)

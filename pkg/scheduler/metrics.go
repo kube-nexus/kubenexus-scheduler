@@ -164,4 +164,141 @@ var (
 		},
 		[]string{"reason", "workload_type"},
 	)
+
+	// Gang Scheduling (Coscheduling) Metrics
+
+	// GangSchedulingDecisions tracks gang scheduling outcomes
+	GangSchedulingDecisions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_gang_scheduling_decisions_total",
+			Help: "Gang scheduling decisions by outcome",
+		},
+		[]string{"outcome", "namespace"},
+	)
+
+	// GangWaitingTime tracks how long gang members wait for the full gang
+	GangWaitingTime = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_gang_waiting_time_seconds",
+			Help:    "Time gang members wait for full gang formation",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600},
+		},
+		[]string{"namespace", "pod_group"},
+	)
+
+	// GangStarvationPreventions tracks starvation prevention priority boosts
+	GangStarvationPreventions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_gang_starvation_preventions_total",
+			Help: "Number of times starvation prevention boosted gang priority",
+		},
+		[]string{"namespace", "pod_group"},
+	)
+
+	// GangCompletionLatency tracks end-to-end gang scheduling time
+	GangCompletionLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_gang_completion_latency_seconds",
+			Help:    "Time from first pod to complete gang formation",
+			Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 1200},
+		},
+		[]string{"namespace", "pod_group", "gang_size"},
+	)
+
+	// NUMA Topology Metrics
+
+	// NumaPlacementDecisions tracks NUMA placement outcomes
+	NumaPlacementDecisions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_numa_placement_decisions_total",
+			Help: "NUMA placement decisions by policy and outcome",
+		},
+		[]string{"policy", "outcome", "workload_type"},
+	)
+
+	// NumaFitQuality tracks NUMA fit quality scores
+	NumaFitQuality = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_numa_fit_quality_score",
+			Help:    "NUMA fit quality score (0-100)",
+			Buckets: []float64{0, 25, 50, 75, 90, 95, 100},
+		},
+		[]string{"node", "numa_id"},
+	)
+
+	// NumaMemoryBandwidthPressure tracks memory bandwidth utilization
+	NumaMemoryBandwidthPressure = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kubenexus_numa_memory_bandwidth_pressure_percent",
+			Help: "NUMA memory bandwidth pressure percentage",
+		},
+		[]string{"node", "numa_id"},
+	)
+
+	// NumaDistancePenalty tracks cross-NUMA placement penalties
+	NumaDistancePenalty = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_numa_distance_penalty_total",
+			Help: "Cross-NUMA distance penalties applied",
+		},
+		[]string{"node", "distance_level"},
+	)
+
+	// NumaGangAffinitySuccess tracks successful gang NUMA co-location
+	NumaGangAffinitySuccess = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_numa_gang_affinity_success_total",
+			Help: "Successful gang NUMA co-location events",
+		},
+		[]string{"gang_policy", "numa_id"},
+	)
+
+	// Resource Fragmentation Metrics
+
+	// IslandProtectionEvents tracks fragmentation prevention actions
+	IslandProtectionEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_island_protection_events_total",
+			Help: "Island fragmentation protection actions taken",
+		},
+		[]string{"protection_type", "prevented"},
+	)
+
+	// PerfectFitPlacements tracks GPU island perfect fit placements
+	PerfectFitPlacements = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_perfect_fit_placements_total",
+			Help: "GPU island perfect fit placements",
+		},
+		[]string{"island_size", "topology_type"},
+	)
+
+	// IslandCompletions tracks GPU island completion events
+	IslandCompletions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_island_completions_total",
+			Help: "GPU island completion events (fully utilized islands)",
+		},
+		[]string{"island_size", "topology_quality"},
+	)
+
+	// FragmentationScoreDistribution tracks fragmentation score distribution
+	FragmentationScoreDistribution = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_fragmentation_score",
+			Help:    "Resource fragmentation score distribution",
+			Buckets: []float64{0, 10, 20, 30, 50, 75, 90, 100},
+		},
+		[]string{"node", "resource_type"},
+	)
+
+	// IslandQualityDistribution tracks GPU island quality distribution
+	IslandQualityDistribution = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_island_quality_score",
+			Help:    "GPU island topology quality score distribution",
+			Buckets: []float64{30, 50, 80, 100},
+		},
+		[]string{"node", "topology_type"},
+	)
 )
