@@ -338,18 +338,27 @@ metadata:
 - ✅ Gang scheduling with cross-plugin awareness
 - ✅ NUMA topology scheduling
 - ✅ Network fabric-aware placement
-- ✅ Kueue integration
+- ✅ Kueue integration (layered architecture)
 
-**v0.3** (Next):
-- ⏳ DRA (Dynamic Resource Allocation) for GPU pools
-- ⏳ Enhanced preemption (checkpoint/restore)
-- ⏳ Multi-cluster scheduling
-- ⏳ Advanced metrics & observability
+**v0.3** (Next - Topology & Placement):
+- ✅ **DRA (Dynamic Resource Allocation) integration for GPU topology discovery**
+- ✅ **3-tier fallback strategy (DRA → NFD → Manual Labels) for K8s version compatibility**
+- ⏳ Enhanced preemption with checkpoint/restore awareness
+- ⏳ Multi-cluster scheduling federation
+- ⏳ Advanced metrics & observability dashboards
 
-**v0.4+**:
-- Dominant Resource Fairness (DRF)
-- Weighted fair share
-- GPU time-slicing support
+**v0.4+** (Advanced Placement):
+- GPU time-slicing with topology awareness
+- NFD integration for auto-discovery
+- NodeResourceTopology CRD support
+- Enhanced Kueue interop (read ClusterQueue quotas for better backfill)
+
+**Not on Roadmap** (Use Kueue Instead):
+- ❌ DRF & Weighted Fair Share → Use [Kueue ClusterQueue fair sharing](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#fair-sharing)
+- ❌ Global quota enforcement → Use Kueue ResourceQuota/ResourceFlavor
+- ❌ Admission control → Use Kueue admission policies
+
+> **Architectural Principle**: KubeNexus optimizes *placement* (WHERE on nodes), Kueue handles *admission* (WHO gets resources). Don't reinvent the wheel.
 
 ---
 

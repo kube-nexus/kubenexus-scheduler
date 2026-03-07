@@ -352,32 +352,67 @@ spec:
 
 ## Multi-Tenant Fairness
 
-### Quota vs. Fair Share
+### Architectural Division: Admission vs. Placement
 
-**Kubernetes ResourceQuota:**
+**KubeNexus does NOT implement:**
+- ❌ Dominant Resource Fairness (DRF)
+- ❌ Weighted fair share algorithms
+- ❌ Global quota enforcement
+- ❌ Hierarchical queue management
+
+**Why?** These are **admission-time** decisions, best handled by [Kueue](https://kueue.sigs.k8s.io/).
+
+**KubeNexus DOES implement:**
+- ✅ Topology-aware placement (NUMA, NVSwitch, GPU locality)
+- ✅ Fragmentation prevention (preserve 8-GPU islands)
+- ✅ Workload-aware strategy (pack vs spread)
+- ✅ Priority-based preemption with topology awareness
+
+### Recommended: Kueue + KubeNexus
+
+**Kueue** (Admission Control):
 ```yaml
-apiVersion: v1
-kind: ResourceQuota
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
 spec:
-  hard:
-    requests.nvidia.com/gpu: "10"
+  namespaceSelector: {}
+  resourceGroups:
+  - flavors:
+    - name: h100-flavor
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: 32
+  fairSharing:
+    weight: 2  # DRF weight for gold tier
 ```
 
-**Problem:** Hard limit. Gold tenant with 10 GPU quota can't use 11th GPU even if cluster has 50 idle GPUs.
-
-**KubeNexus Approach:** Soft priorities + preemption
-- Gold tenant can use ALL idle capacity
-- Silver tenant gets preempted when Gold needs resources
-- No hard quotas → Better utilization
-
-### Integration with Kueue
-
-Kueue provides admission control + quotas. KubeNexus provides intelligent placement:
-
+**KubeNexus** (Placement Optimization):
+```yaml
+# Pod admitted by Kueue
+metadata:
+  namespace: gold-team
+  labels:
+    kueue.x-k8s.io/queue-name: gold-queue
+spec:
+  schedulerName: kubenexus-scheduler  # Optimizes placement
+  # → Routes to H100 nodes with contiguous GPUs + NUMA alignment
 ```
-Kueue: Admits pod (within quota)
-  ↓
-KubeNexus: Schedules to optimal node (tenant tier + workload type + topology)
+
+**Division of Responsibility:**
+```
+┌─────────────────────────────────────────┐
+│ Kueue (Admission Time)                  │
+│ • Fair share (DRF)                      │
+│ • Quota enforcement                     │
+│ • WHO gets resources                    │
+└─────────────────────────────────────────┘
+              ↓ Pod admitted
+┌─────────────────────────────────────────┐
+│ KubeNexus (Placement Time)              │
+│ • Topology optimization                 │
+│ • Fragmentation prevention              │
+│ • WHERE resources are placed            │
+└─────────────────────────────────────────┘
 ```
 
 **Complementary, not competitive.**

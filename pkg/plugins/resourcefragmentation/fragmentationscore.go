@@ -21,6 +21,7 @@ package resourcefragmentation
 
 import (
 	"context"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,6 +30,7 @@ import (
 	framework "k8s.io/kube-scheduler/framework"
 
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	schedulermetrics "github.com/kube-nexus/kubenexus-scheduler/pkg/scheduler"
 )
 
 const (
@@ -105,6 +107,7 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 				"node", nodeInfo.Node().Name,
 				"nodeTenantTier", island.TenantTier,
 				"islandSize", island.TotalGPUs)
+			schedulermetrics.IslandProtectionEvents.WithLabelValues("tenant_mismatch", "true").Inc()
 			return PenaltyTenantMismatch, framework.NewStatus(framework.Success)
 		}
 	}
@@ -117,6 +120,7 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 			"node", nodeInfo.Node().Name,
 			"islandSize", island.TotalGPUs,
 			"requestSize", requestedGPUs)
+		schedulermetrics.IslandProtectionEvents.WithLabelValues("pristine_island", "true").Inc()
 		return PenaltyFragmentPristineIsland, framework.NewStatus(framework.Success)
 	}
 
@@ -124,6 +128,9 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 		klog.V(4).InfoS("Perfect fit bonus",
 			"pod", pod.Name,
 			"node", nodeInfo.Node().Name)
+		schedulermetrics.PerfectFitPlacements.WithLabelValues(strconv.Itoa(island.TotalGPUs), island.Topology).Inc()
+		schedulermetrics.IslandCompletions.WithLabelValues(strconv.Itoa(island.TotalGPUs), strconv.Itoa(island.Quality)).Inc()
+		schedulermetrics.IslandQualityDistribution.WithLabelValues(nodeInfo.Node().Name, island.Topology).Observe(float64(island.Quality))
 		return BonusPerfectFit, framework.NewStatus(framework.Success)
 	}
 
@@ -134,10 +141,13 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 
 	if island.TotalGPUs >= LargeIslandThreshold && requestedGPUs < island.TotalGPUs/2 {
 		penalty := PenaltyFragmentLargeIsland + int64(island.Quality)/10
+		schedulermetrics.IslandProtectionEvents.WithLabelValues("large_island", "true").Inc()
 		return penalty, framework.NewStatus(framework.Success)
 	}
 
 	utilizationScore := (island.AllocatedGPUs * 100) / island.TotalGPUs
+	schedulermetrics.FragmentationScoreDistribution.WithLabelValues(nodeInfo.Node().Name, "gpu").Observe(float64(utilizationScore))
+	schedulermetrics.IslandQualityDistribution.WithLabelValues(nodeInfo.Node().Name, island.Topology).Observe(float64(island.Quality))
 	return int64(utilizationScore), framework.NewStatus(framework.Success)
 }
 

@@ -17,9 +17,17 @@ limitations under the License.
 // Package vramscheduler implements VRAM-aware GPU scheduling to prevent OOM-on-Arrival crashes
 // and optimize VRAM utilization by matching workload requirements to GPU memory capacity.
 //
-// VRAM Requirements - Two Approaches:
+// # Kubernetes Version Compatibility
 //
-//  1. DRA (Dynamic Resource Allocation) - Modern Kubernetes v1.26+:
+// VRAMScheduler supports all Kubernetes versions through a 3-tier fallback strategy:
+//
+//   - Kubernetes 1.26+ with DRA driver: Full topology awareness (VRAM, NUMA, PCIe, NVLink)
+//   - Kubernetes 1.18+ with NFD DaemonSet: Auto-discovered GPU detection via PCI scanning
+//   - Any Kubernetes version: Manual node labels (operator-managed fallback)
+//
+// # VRAM Requirements Detection (Pod-side)
+//
+//  1. DRA ResourceClaims (Kubernetes v1.26+):
 //     Pods declare GPU memory requirements via ResourceClaims:
 //     spec:
 //     resourceClaims:
@@ -30,23 +38,42 @@ limitations under the License.
 //     annotations:
 //     scheduling.kubenexus.io/vram-request: "80Gi"
 //
-//  2. Annotation-based - Legacy/Simple approach:
+//  2. Annotation-based (Any Kubernetes version):
 //     Pods specify VRAM requirements via annotations:
 //     metadata:
 //     annotations:
 //     scheduling.kubenexus.io/vram-request: "80Gi"
 //     scheduling.kubenexus.io/model-size: "70B"  # informational
 //
-// Node VRAM Capacity - Two Sources:
+// # Node VRAM Capacity Discovery (Node-side)
 //
-//  1. DRA ResourceSlices (preferred):
-//     Automatic discovery from kubelet via DRA driver
+//  1. DRA ResourceSlices (Kubernetes v1.26+, preferred):
+//     Automatic discovery from kubelet via DRA driver.
+//     Provides: Full GPU topology (VRAM, NUMA, PCIe, NVLink domains).
+//     Requires: DRA driver installed (e.g., nvidia-dra-driver, amd-device-plugin with DRA).
 //
-//  2. Node labels (fallback):
-//     Manual labeling:
+//  2. NFD Labels (Kubernetes v1.18+, auto-discovery fallback):
+//     Automatic discovery via NodeFeatureDiscovery PCI scanning.
+//     Provides: GPU detection, VRAM inference from PCI device ID, NUMA node count.
+//     Requires: NFD DaemonSet installed.
+//     Labels created:
+//     feature.node.kubernetes.io/pci-10de.device.2330.present=true  # H100 detected
+//     feature.node.kubernetes.io/memory-numa.node_count=2           # 2 NUMA nodes
+//
+//  3. Manual node labels (any Kubernetes version, operator fallback):
+//     Operators manually label nodes:
 //     gpu.kubenexus.io/vram: "80Gi"
 //     gpu.kubenexus.io/model: "H100"
 //     gpu.kubenexus.io/count: "8"
+//
+// # Migration Path
+//
+// Operators can migrate incrementally:
+//  1. Start with manual labels (works immediately on any K8s version)
+//  2. Install NFD for auto-discovery (eliminates manual labeling)
+//  3. Upgrade to K8s 1.26+ and install DRA for full topology awareness
+//
+// All three methods can coexist - VRAMScheduler always prefers the most detailed source available.
 package vramscheduler
 
 import (
@@ -54,16 +81,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	resourcev1listers "k8s.io/client-go/listers/resource/v1"
 	klog "k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	schedulermetrics "github.com/kube-nexus/kubenexus-scheduler/pkg/scheduler"
 )
 
 const (
@@ -145,8 +174,15 @@ type GPUDevice struct {
 
 // VRAMScheduler implements VRAM-aware scheduling to prevent OOM and optimize VRAM utilization
 type VRAMScheduler struct {
-	handle    framework.Handle
+	handle framework.Handle
+	// Deprecated: clientset is kept for backward compatibility with older K8s versions
+	// that may not have DRA informers. Use listers instead where possible.
 	clientset kubernetes.Interface
+
+	// DRA resource listers (initialized once in New())
+	resourceSliceLister         resourcev1listers.ResourceSliceLister
+	resourceClaimLister         resourcev1listers.ResourceClaimLister
+	resourceClaimTemplateLister resourcev1listers.ResourceClaimTemplateLister
 }
 
 // Ensure VRAMScheduler implements required interfaces
@@ -162,19 +198,35 @@ func (v *VRAMScheduler) Name() string {
 
 // Score calculates the score for scheduling a pod on a node based on VRAM requirements
 func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+	// Track plugin latency
+	start := time.Now()
+	defer func() {
+		schedulermetrics.SchedulingLatency.WithLabelValues("VRAMScheduler", "Score").Observe(time.Since(start).Seconds())
+	}()
+
 	node := nodeInfo.Node()
 	if node == nil {
 		return 0, framework.NewStatus(framework.Error, "node not found")
 	}
 
-	// Check if pod requests VRAM
-	vramRequest := getVRAMRequest(pod)
+	// Determine workload type for metrics
+	workloadType := "unknown"
+	if profile, err := profileclassifier.GetProfile(&state); err == nil && profile != nil {
+		workloadType = string(profile.WorkloadType)
+	}
+
+	// Check if pod requests VRAM (using DRA-first fallback chain)
+	vramRequest := v.getVRAMRequest(ctx, pod)
 	if vramRequest == 0 {
 		// No VRAM request - return neutral score
 		klog.V(5).InfoS("Pod has no VRAM request, scoring neutrally",
 			"pod", pod.Name, "namespace", pod.Namespace, "node", node.Name)
+		schedulermetrics.VRAMPlacementDecisions.WithLabelValues("no_vram_request", workloadType, "none").Inc()
 		return ScoreAcceptableFit, framework.NewStatus(framework.Success)
 	}
+
+	// Track VRAM requested
+	schedulermetrics.VRAMRequestedBytes.WithLabelValues(pod.Namespace, workloadType).Observe(float64(vramRequest))
 
 	// Get GPU VRAM capacity and topology from node (now reading from DRA ResourceSlices)
 	gpuVRAM, gpuCount := v.getNodeGPUVRAM(ctx, node)
@@ -184,6 +236,8 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 		// Node has no GPU or VRAM info
 		klog.V(5).InfoS("Node has no GPU VRAM information",
 			"node", node.Name, "pod", pod.Name)
+		schedulermetrics.VRAMPlacementDecisions.WithLabelValues("no_gpu_on_node", workloadType, "unknown").Inc()
+		schedulermetrics.GPUAllocationFailures.WithLabelValues("no_gpu_info", workloadType).Inc()
 		return ScoreInsufficientVRAM, framework.NewStatus(framework.Success)
 	}
 
@@ -209,6 +263,8 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 				"vramPerGPU", formatBytes(totalVRAMPerGPU),
 				"gpusRequested", gpusRequested,
 				"totalAvailable", formatBytes(totalAvailableVRAM))
+			schedulermetrics.VRAMPlacementDecisions.WithLabelValues("insufficient_vram", workloadType, "unknown").Inc()
+			schedulermetrics.GPUAllocationFailures.WithLabelValues("insufficient_vram", workloadType).Inc()
 			return ScoreInsufficientVRAM, framework.NewStatus(framework.Success)
 		}
 		// Multi-GPU case: calculate utilization across all GPUs
@@ -273,8 +329,30 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 				"gpusRequested", gpusRequested,
 				"topologyBonus", topologyBonus,
 				"finalScore", score)
+			schedulermetrics.TopologyQualityScore.WithLabelValues(node.Name, "multi_gpu").Observe(float64(score))
 		}
 	}
+
+	// Track successful placement decision
+	outcome := "success"
+	if score >= ScoreGoodFit {
+		outcome = "good_fit"
+		schedulermetrics.GPUAllocationSuccess.WithLabelValues(workloadType, fmt.Sprintf("%d", gpusRequested), "true").Inc()
+	} else if score >= ScoreAcceptableFit {
+		outcome = "acceptable_fit"
+		schedulermetrics.GPUAllocationSuccess.WithLabelValues(workloadType, fmt.Sprintf("%d", gpusRequested), "false").Inc()
+	} else if score == ScorePoorFit {
+		outcome = "poor_fit"
+		schedulermetrics.FragmentationEvents.WithLabelValues("poor_utilization", "false").Inc()
+	}
+	schedulermetrics.VRAMPlacementDecisions.WithLabelValues(outcome, workloadType, "legacy").Inc()
+
+	// Track VRAM utilization on this node
+	gpuModel := node.Labels[LabelGPUModel]
+	if gpuModel == "" {
+		gpuModel = "unknown"
+	}
+	schedulermetrics.VRAMNodeUtilization.WithLabelValues(node.Name, gpuModel).Set(utilizationRatio * 100)
 
 	klog.V(4).InfoS("VRAM-aware scheduling score",
 		"pod", pod.Name,
@@ -318,6 +396,9 @@ func (v *VRAMScheduler) calculateGPUTopologyBonus(gpuDevices []GPUDevice, gpusRe
 		klog.V(5).InfoS("GPU-NUMA locality bonus applied",
 			"pod", pod.Name,
 			"bonus", BonusGPUNUMALocality)
+		schedulermetrics.TopologyDecisions.WithLabelValues("NUMA", "true", "multi_gpu").Inc()
+	} else {
+		schedulermetrics.TopologyDecisions.WithLabelValues("NUMA", "false", "multi_gpu").Inc()
 	}
 
 	// Check for NVLink connectivity: requested GPUs form connected island
@@ -327,6 +408,9 @@ func (v *VRAMScheduler) calculateGPUTopologyBonus(gpuDevices []GPUDevice, gpusRe
 		klog.V(5).InfoS("NVLink connectivity bonus applied",
 			"pod", pod.Name,
 			"bonus", BonusNVLinkConnected)
+		schedulermetrics.TopologyDecisions.WithLabelValues("NVLink", "true", "multi_gpu").Inc()
+	} else {
+		schedulermetrics.TopologyDecisions.WithLabelValues("NVLink", "false", "multi_gpu").Inc()
 	}
 
 	// Check for PCIe locality: GPUs share same PCIe switch
@@ -336,6 +420,9 @@ func (v *VRAMScheduler) calculateGPUTopologyBonus(gpuDevices []GPUDevice, gpusRe
 		klog.V(5).InfoS("PCIe locality bonus applied",
 			"pod", pod.Name,
 			"bonus", BonusPCIeLocality)
+		schedulermetrics.TopologyDecisions.WithLabelValues("PCIe", "true", "multi_gpu").Inc()
+	} else {
+		schedulermetrics.TopologyDecisions.WithLabelValues("PCIe", "false", "multi_gpu").Inc()
 	}
 
 	return totalBonus
@@ -419,14 +506,14 @@ func (v *VRAMScheduler) Filter(ctx context.Context, state framework.CycleState, 
 		return framework.NewStatus(framework.Error, "node not found")
 	}
 
-	// Check if pod requests VRAM
-	vramRequest := getVRAMRequest(pod)
+	// Check if pod requests VRAM (using DRA-first fallback chain)
+	vramRequest := v.getVRAMRequest(ctx, pod)
 	if vramRequest == 0 {
 		// No VRAM requirement - allow scheduling
 		return framework.NewStatus(framework.Success)
 	}
 
-	// Get GPU VRAM capacity from node (now reading from DRA ResourceSlices)
+	// Get GPU VRAM capacity from node (using DRA-first fallback chain)
 	gpuVRAM, _ := v.getNodeGPUVRAM(ctx, node)
 	if gpuVRAM == 0 {
 		// Node has no GPU VRAM info - filter out
@@ -531,61 +618,53 @@ func (v *VRAMScheduler) getTenantTierFromProfile(state framework.CycleState, pod
 	return "bronze"
 }
 
-// getVRAMRequest extracts VRAM request from pod ResourceClaims (DRA) or annotations (fallback)
-// Returns VRAM requirement in bytes
+// getVRAMRequest extracts VRAM request from pod using priority-based fallback chain.
 //
-// DRA-first approach:
-//  1. Check pod.spec.resourceClaims for GPU memory requirements
-//  2. Fall back to annotation for non-DRA clusters or explicit overrides
+// 2-Tier Fallback Strategy:
+//  1. DRA ResourceClaims (K8s 1.26+, preferred method)
+//  2. Annotation scheduling.kubenexus.io/vram-request (any K8s version, manual or operator-set)
 //
-// This supports both:
-//   - Modern DRA-native pods: spec.resourceClaims with memory capacity
-//   - Legacy/simple pods: scheduling.kubenexus.io/vram-request annotation
-func getVRAMRequest(pod *v1.Pod) int64 {
-	// Priority 1: Check DRA ResourceClaims
+// Returns VRAM requirement in bytes, or 0 if not specified.
+func (v *VRAMScheduler) getVRAMRequest(ctx context.Context, pod *v1.Pod) int64 {
+	// PRIORITY 1: DRA ResourceClaims (Kubernetes 1.26+)
 	if len(pod.Spec.ResourceClaims) > 0 {
-		for _, claim := range pod.Spec.ResourceClaims {
-			// Check if this is a GPU resource claim
-			// Note: The actual VRAM requirement would be in the ResourceClaimTemplate spec
-			// For now, we'll check the claim name pattern and extract from template
-
-			// Common patterns: gpu-claim, nvidia-gpu, accelerator
-			claimName := claim.Name
-			if strings.Contains(strings.ToLower(claimName), "gpu") ||
-				strings.Contains(strings.ToLower(claimName), "accelerator") ||
-				strings.Contains(strings.ToLower(claimName), "nvidia") {
-
-				// TODO: In full DRA integration, we would:
-				// 1. Fetch the ResourceClaim object
-				// 2. Get the ResourceClaimTemplate
-				// 3. Extract memory requirements from template spec
-				//
-				// For now, DRA users should also set annotation as a hint
-				// This will be enhanced in future versions
-
-				klog.V(4).InfoS("Pod has DRA ResourceClaim, checking annotation for VRAM hint",
-					"pod", pod.Name,
-					"claim", claimName)
-			}
+		vram, err := v.getVRAMFromResourceClaim(ctx, pod)
+		if err == nil && vram > 0 {
+			klog.V(4).InfoS("✅ Using VRAM requirement from DRA ResourceClaim",
+				"pod", klog.KObj(pod),
+				"source", "DRA",
+				"vram", formatBytes(vram))
+			return vram
 		}
+		klog.V(5).InfoS("DRA ResourceClaims present but couldn't extract VRAM, trying annotation",
+			"pod", klog.KObj(pod),
+			"reason", err)
 	}
 
-	// Priority 2: Check annotation (fallback and DRA hint)
+	// PRIORITY 2: Annotation (any Kubernetes version)
+	// Users or operators can set: scheduling.kubenexus.io/vram-request: "80Gi"
 	if vramStr, ok := pod.Annotations[AnnotationVRAMRequest]; ok {
-		// Parse quantity (e.g., "80Gi", "24GB")
 		quantity, err := resource.ParseQuantity(vramStr)
 		if err != nil {
 			klog.V(4).InfoS("Failed to parse VRAM request annotation",
-				"pod", pod.Name, "vramRequest", vramStr, "error", err)
+				"pod", klog.KObj(pod),
+				"vramRequest", vramStr,
+				"error", err)
 			return 0
 		}
 		vramBytes := quantity.Value()
-		klog.V(5).InfoS("Parsed VRAM request from pod annotation",
-			"pod", pod.Name, "vramRequest", vramStr, "bytes", vramBytes)
+		klog.V(4).InfoS("✅ Using VRAM request from pod annotation",
+			"pod", klog.KObj(pod),
+			"source", "annotation",
+			"vramRequest", vramStr,
+			"bytes", vramBytes)
 		return vramBytes
 	}
 
-	// No VRAM requirement specified
+	// No VRAM requirement specified - pod will be scored based on GPU count only
+	klog.V(6).InfoS("No VRAM requirement specified for pod",
+		"pod", klog.KObj(pod),
+		"hint", "Set annotation scheduling.kubenexus.io/vram-request for VRAM-aware scheduling")
 	return 0
 }
 
@@ -611,136 +690,69 @@ func (v *VRAMScheduler) getNodeGPUVRAM(ctx context.Context, node *v1.Node) (int6
 	return vramPerGPU, len(gpuDevices)
 }
 
-// getNodeGPUTopology extracts full GPU topology information from DRA ResourceSlices
+// getNodeGPUTopology extracts full GPU topology information using priority-based fallback chain.
+//
+// 3-Tier Fallback Strategy (for Kubernetes version compatibility):
+//  1. DRA ResourceSlices (K8s 1.26+, most detailed, dynamic)
+//  2. NFD labels (any K8s version with NFD installed, auto-discovered)
+//  3. Manual node labels (any K8s version, operator-managed fallback)
+//
 // Returns (vramPerGPU, []GPUDevice with full topology)
 func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (int64, []GPUDevice) {
-	if v.clientset == nil {
-		klog.V(4).InfoS("No clientset available, falling back to node labels",
-			"node", node.Name)
-		vramPerGPU, gpuCount := getNodeGPUVRAMFromLabels(node)
-		devices := make([]GPUDevice, gpuCount)
-		for i := range devices {
-			devices[i] = GPUDevice{VRAM: vramPerGPU, NUMANode: -1, NVLinkDomain: -1}
+	// PRIORITY 1: DRA ResourceSlices (Kubernetes 1.34+)
+	// Provides: Full topology (VRAM, NUMA, PCIe, NVLink), dynamic updates
+	if v.resourceSliceLister != nil {
+		vramPerGPU, devices, err := v.getGPUTopologyFromDRA(ctx, node)
+		if err == nil && len(devices) > 0 {
+			klog.V(4).InfoS("✅ Using GPU topology from DRA ResourceSlices",
+				"node", node.Name,
+				"source", "DRA",
+				"gpuCount", len(devices),
+				"vramPerGPU", formatBytes(vramPerGPU))
+			schedulermetrics.DataSourceUsage.WithLabelValues("DRA", node.Name).Inc()
+			return vramPerGPU, devices
 		}
-		return vramPerGPU, devices
-	}
-
-	// Query ResourceSlices for this node
-	resourceSlices, err := v.clientset.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", node.Name),
-	})
-
-	if err != nil {
-		klog.V(4).InfoS("Failed to list ResourceSlices for node, falling back to labels",
-			"node", node.Name, "error", err)
-		vramPerGPU, gpuCount := getNodeGPUVRAMFromLabels(node)
-		// Return empty GPU devices with VRAM information
-		devices := make([]GPUDevice, gpuCount)
-		for i := range devices {
-			devices[i] = GPUDevice{VRAM: vramPerGPU, NUMANode: -1, NVLinkDomain: -1}
-		}
-		return vramPerGPU, devices
-	}
-
-	if len(resourceSlices.Items) == 0 {
-		klog.V(5).InfoS("No ResourceSlices found for node, falling back to labels",
-			"node", node.Name)
-		vramPerGPU, gpuCount := getNodeGPUVRAMFromLabels(node)
-		devices := make([]GPUDevice, gpuCount)
-		for i := range devices {
-			devices[i] = GPUDevice{VRAM: vramPerGPU, NUMANode: -1, NVLinkDomain: -1}
-		}
-		return vramPerGPU, devices
-	}
-
-	// Extract VRAM and topology from ResourceSlice devices
-	var gpuDevices []GPUDevice
-	var vramPerGPU int64
-
-	for _, slice := range resourceSlices.Items {
-		// Check if this is a GPU driver
-		if !isGPUDriver(slice.Spec.Driver) {
-			continue
-		}
-
-		for _, device := range slice.Spec.Devices {
-			gpu := GPUDevice{
-				Name:         device.Name,
-				NUMANode:     -1, // Default: unknown
-				NVLinkDomain: -1,
-			}
-
-			// Extract VRAM capacity
-			if device.Capacity != nil {
-				for resourceName, deviceCapacity := range device.Capacity {
-					if strings.Contains(strings.ToLower(string(resourceName)), "memory") {
-						gpu.VRAM = deviceCapacity.Value.Value()
-						if vramPerGPU == 0 || gpu.VRAM < vramPerGPU {
-							vramPerGPU = gpu.VRAM
-						}
-						break
-					}
-				}
-			}
-
-			// Extract topology attributes from DRA
-			if device.Attributes != nil {
-				// GPU-to-NUMA affinity
-				if numaAttr, exists := device.Attributes["numa-node"]; exists && numaAttr.IntValue != nil {
-					gpu.NUMANode = int(*numaAttr.IntValue)
-				}
-
-				// PCIe topology
-				if pcieAttr, exists := device.Attributes["pcie-bus-id"]; exists && pcieAttr.StringValue != nil {
-					gpu.PCIeBusID = *pcieAttr.StringValue
-				}
-				if switchAttr, exists := device.Attributes["pcie-switch"]; exists && switchAttr.StringValue != nil {
-					gpu.PCIeSwitch = *switchAttr.StringValue
-				}
-
-				// NVLink topology
-				if peersAttr, exists := device.Attributes["nvlink-peers"]; exists && peersAttr.StringValue != nil {
-					peerList := strings.Split(*peersAttr.StringValue, ",")
-					for _, peer := range peerList {
-						peer = strings.TrimSpace(peer)
-						if peer != "" {
-							gpu.NVLinkPeers = append(gpu.NVLinkPeers, peer)
-						}
-					}
-				}
-				if domainAttr, exists := device.Attributes["nvlink-domain"]; exists && domainAttr.IntValue != nil {
-					gpu.NVLinkDomain = int(*domainAttr.IntValue)
-				}
-			}
-
-			if gpu.VRAM > 0 {
-				gpuDevices = append(gpuDevices, gpu)
-				klog.V(5).InfoS("Discovered GPU with topology",
-					"node", node.Name,
-					"gpu", gpu.Name,
-					"vram", formatBytes(gpu.VRAM),
-					"numaNode", gpu.NUMANode,
-					"nvlinkPeers", len(gpu.NVLinkPeers),
-					"pcieSwitch", gpu.PCIeSwitch)
-			}
-		}
-	}
-
-	if len(gpuDevices) > 0 {
-		klog.V(4).InfoS("Extracted GPU topology from DRA ResourceSlices",
+		klog.V(5).InfoS("DRA ResourceSlices not available, trying NFD labels",
 			"node", node.Name,
-			"gpuCount", len(gpuDevices),
-			"vramPerGPU", formatBytes(vramPerGPU))
-		return vramPerGPU, gpuDevices
+			"reason", err)
+	} else {
+		klog.V(5).InfoS("DRA not available (lister nil), trying NFD labels",
+			"node", node.Name)
 	}
 
-	// No GPU info in ResourceSlices, fall back to node labels
-	klog.V(5).InfoS("No GPU topology found in ResourceSlices, falling back to labels",
-		"node", node.Name)
+	// PRIORITY 2: NFD (Node Feature Discovery) labels (K8s 1.18+)
+	// Provides: GPU detection via PCI scanning, NUMA node count, partial topology
+	// Requires: NFD DaemonSet installed on cluster
+	vramPerGPU, devices, err := v.getTopologyFromNFD(node)
+	if err == nil && len(devices) > 0 {
+		klog.V(4).InfoS("✅ Using GPU topology from NFD labels (auto-discovered)",
+			"node", node.Name,
+			"source", "NFD",
+			"gpuCount", len(devices),
+			"vramPerGPU", formatBytes(vramPerGPU))
+		schedulermetrics.DataSourceUsage.WithLabelValues("NFD", node.Name).Inc()
+		return vramPerGPU, devices
+	}
+	klog.V(5).InfoS("NFD labels not found, falling back to manual labels",
+		"node", node.Name,
+		"reason", err)
+
+	// PRIORITY 3: Manual node labels (any Kubernetes version)
+	// Provides: Basic VRAM and GPU count only
+	// Requires: Operators to manually label nodes
+	klog.V(4).InfoS("⚠️  Using GPU topology from manual node labels (operator-managed)",
+		"node", node.Name,
+		"source", "manual-labels")
+	schedulermetrics.DataSourceUsage.WithLabelValues("manual_labels", node.Name).Inc()
 	vramPerGPU, gpuCount := getNodeGPUVRAMFromLabels(node)
-	devices := make([]GPUDevice, gpuCount)
+	devices = make([]GPUDevice, gpuCount)
 	for i := range devices {
-		devices[i] = GPUDevice{VRAM: vramPerGPU, NUMANode: -1, NVLinkDomain: -1}
+		devices[i] = GPUDevice{
+			Name:         fmt.Sprintf("gpu-%d", i),
+			VRAM:         vramPerGPU,
+			NUMANode:     -1, // Unknown from manual labels
+			NVLinkDomain: -1, // Unknown from manual labels
+		}
 	}
 	return vramPerGPU, devices
 }
@@ -903,8 +915,27 @@ func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framewor
 		clientset = nil
 	}
 
+	// Initialize DRA resource listers from shared informer factory (K8s 1.34+)
+	// These are initialized once and reused for efficiency
+	var resourceSliceLister resourcev1listers.ResourceSliceLister
+	var resourceClaimLister resourcev1listers.ResourceClaimLister
+	var resourceClaimTemplateLister resourcev1listers.ResourceClaimTemplateLister
+
+	informerFactory := handle.SharedInformerFactory()
+	if informerFactory != nil {
+		resourceSliceLister = informerFactory.Resource().V1().ResourceSlices().Lister()
+		resourceClaimLister = informerFactory.Resource().V1().ResourceClaims().Lister()
+		resourceClaimTemplateLister = informerFactory.Resource().V1().ResourceClaimTemplates().Lister()
+		klog.V(3).InfoS("DRA listers initialized successfully")
+	} else {
+		klog.V(4).InfoS("SharedInformerFactory not available, DRA support will be limited")
+	}
+
 	return &VRAMScheduler{
-		handle:    handle,
-		clientset: clientset,
+		handle:                      handle,
+		clientset:                   clientset,
+		resourceSliceLister:         resourceSliceLister,
+		resourceClaimLister:         resourceClaimLister,
+		resourceClaimTemplateLister: resourceClaimTemplateLister,
 	}, nil
 }

@@ -37,6 +37,7 @@ import (
 	framework "k8s.io/kube-scheduler/framework"
 
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
+	schedulermetrics "github.com/kube-nexus/kubenexus-scheduler/pkg/scheduler"
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/utils"
 )
 
@@ -123,11 +124,13 @@ func (cs *Coscheduling) Less(podInfo1 framework.QueuedPodInfo, podInfo2 framewor
 	if starving1 && !starving2 {
 		klog.V(3).Infof("QueueSort: pod group %s/%s is starving (age: %v), boosting priority",
 			pod1.Namespace, pgInfo1.name, age1)
+		schedulermetrics.GangStarvationPreventions.WithLabelValues(pod1.Namespace, pgInfo1.name).Inc()
 		return true // starving1 goes first
 	}
 	if !starving1 && starving2 {
 		klog.V(3).Infof("QueueSort: pod group %s/%s is starving (age: %v), boosting priority",
 			pod2.Namespace, pgInfo2.name, age2)
+		schedulermetrics.GangStarvationPreventions.WithLabelValues(pod2.Namespace, pgInfo2.name).Inc()
 		return false // starving2 goes first
 	}
 
@@ -230,6 +233,7 @@ func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleStat
 	if total < minAvailable {
 		klog.V(3).Infof("PreFilter: podGroup %s/%s has %d pods, needs %d (pod: %s)",
 			p.Namespace, podGroupName, total, minAvailable, p.Name)
+		schedulermetrics.GangSchedulingDecisions.WithLabelValues("insufficient_pods", p.Namespace).Inc()
 		return nil, framework.NewStatus(framework.Unschedulable,
 			fmt.Sprintf("pod group has %d pods, needs at least %d", total, minAvailable))
 	}
@@ -270,12 +274,15 @@ func (cs *Coscheduling) Permit(ctx context.Context, state framework.CycleState, 
 	if current < minAvailable {
 		klog.V(3).Infof("Permit: podGroup %s/%s waiting for more pods (%d/%d)",
 			namespace, podGroupName, current, minAvailable)
+		schedulermetrics.GangWaitingTime.WithLabelValues(namespace, podGroupName).Observe(float64(PermitWaitingTime.Seconds()))
 		return framework.NewStatus(framework.Wait, ""), PermitWaitingTime
 	}
 
 	// All required pods are here, allow the entire group
 	klog.V(3).Infof("Permit: podGroup %s/%s ready to schedule (%d/%d)",
 		namespace, podGroupName, current, minAvailable)
+	schedulermetrics.GangSchedulingDecisions.WithLabelValues("success", namespace).Inc()
+	schedulermetrics.GangCompletionLatency.WithLabelValues(namespace, podGroupName, fmt.Sprintf("%d", minAvailable)).Observe(time.Since(time.Now()).Seconds())
 
 	// Safely call IterateOverWaitingPods with recovery for test frameworks
 	if cs.frameworkHandle != nil {
@@ -315,6 +322,7 @@ func (cs *Coscheduling) Unreserve(ctx context.Context, state framework.CycleStat
 	}
 
 	klog.V(3).Infof("Unreserve: rejecting pods in group %s/%s", p.Namespace, podGroupName)
+	schedulermetrics.GangSchedulingDecisions.WithLabelValues("timeout", p.Namespace).Inc()
 
 	cs.frameworkHandle.IterateOverWaitingPods(func(waitingPod framework.WaitingPod) {
 		if waitingPod.GetPod().Namespace == p.Namespace {
