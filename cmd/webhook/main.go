@@ -17,12 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +34,9 @@ import (
 
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/webhook"
 )
+
+// ready indicates whether the webhook server has completed initialization
+var ready atomic.Bool
 
 var (
 	port     int
@@ -105,14 +110,24 @@ func main() {
 		}
 	}()
 
+	// Mark as ready after server is started and dependencies are validated
+	ready.Store(true)
+	klog.InfoS("Webhook server ready")
+
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	<-signalChan
 
 	klog.InfoS("Received termination signal, shutting down webhook server")
 
-	if err := server.Close(); err != nil {
-		klog.ErrorS(err, "Error shutting down webhook server")
+	// Graceful shutdown: wait for in-flight requests to complete (up to 15s)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		klog.ErrorS(err, "Error during graceful shutdown, forcing close")
+		if closeErr := server.Close(); closeErr != nil {
+			klog.ErrorS(closeErr, "Error forcing server close")
+		}
 	}
 }
 
@@ -122,6 +137,11 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func readyzHandler(w http.ResponseWriter, r *http.Request) {
+	if !ready.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("not ready"))
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ready"))
 }

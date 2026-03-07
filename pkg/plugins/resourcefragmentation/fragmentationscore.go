@@ -130,7 +130,7 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 			"node", nodeInfo.Node().Name)
 		schedulermetrics.PerfectFitPlacements.WithLabelValues(strconv.Itoa(island.TotalGPUs), island.Topology).Inc()
 		schedulermetrics.IslandCompletions.WithLabelValues(strconv.Itoa(island.TotalGPUs), strconv.Itoa(island.Quality)).Inc()
-		schedulermetrics.IslandQualityDistribution.WithLabelValues(nodeInfo.Node().Name, island.Topology).Observe(float64(island.Quality))
+		schedulermetrics.IslandQualityDistribution.WithLabelValues(island.Topology).Observe(float64(island.Quality))
 		return BonusPerfectFit, framework.NewStatus(framework.Success)
 	}
 
@@ -146,8 +146,8 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 	}
 
 	utilizationScore := (island.AllocatedGPUs * 100) / island.TotalGPUs
-	schedulermetrics.FragmentationScoreDistribution.WithLabelValues(nodeInfo.Node().Name, "gpu").Observe(float64(utilizationScore))
-	schedulermetrics.IslandQualityDistribution.WithLabelValues(nodeInfo.Node().Name, island.Topology).Observe(float64(island.Quality))
+	schedulermetrics.FragmentationScoreDistribution.WithLabelValues("gpu").Observe(float64(utilizationScore))
+	schedulermetrics.IslandQualityDistribution.WithLabelValues(island.Topology).Observe(float64(island.Quality))
 	return int64(utilizationScore), framework.NewStatus(framework.Success)
 }
 
