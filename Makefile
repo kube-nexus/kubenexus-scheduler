@@ -50,7 +50,7 @@ build-webhook:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	$(BUILDENVVAR) go test -v ./pkg/apis/... ./pkg/plugins/coscheduling/... ./pkg/plugins/resourcereservation/... ./pkg/workload/... ./pkg/utils/... ./pkg/scheduler/...
+	$(BUILDENVVAR) go test -v ./pkg/...
 
 .PHONY: test-webhook
 test-webhook:
@@ -70,7 +70,7 @@ test-e2e:
 .PHONY: test-coverage
 test-coverage:
 	@echo "Running tests with coverage..."
-	$(BUILDENVVAR) go test -coverprofile=coverage.out ./pkg/apis/... ./pkg/plugins/coscheduling/... ./pkg/plugins/resourcereservation/... ./pkg/workload/... ./pkg/utils/... ./pkg/scheduler/...
+	$(BUILDENVVAR) go test -coverprofile=coverage.out ./pkg/...
 	$(BUILDENVVAR) go tool cover -html=coverage.out -o coverage.html
 
 .PHONY: docker-build

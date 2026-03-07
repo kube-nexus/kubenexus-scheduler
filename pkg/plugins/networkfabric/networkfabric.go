@@ -183,8 +183,7 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 
 	// If not a gang member, just return fabric tier score
 	if !isGangMember {
-		klog.V(5).Infof("NetworkFabricScore: pod %s/%s (non-gang) on node %s, fabric=%s, score=%d",
-			pod.Namespace, pod.Name, node.Name, fabricType, baseScore)
+		klog.V(5).InfoS("NetworkFabricScore: scoring non-gang pod", "namespace", pod.Namespace, "pod", pod.Name, "node", node.Name, "fabric", fabricType, "score", baseScore)
 		return int64(baseScore), nil
 	}
 
@@ -193,8 +192,7 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 
 	if len(gangPods) == 0 {
 		// First pod in gang, return base fabric score
-		klog.V(4).Infof("NetworkFabricScore: pod %s/%s (first in gang %s) on node %s, fabric=%s, score=%d",
-			pod.Namespace, pod.Name, podGroup, node.Name, fabricType, baseScore)
+		klog.V(4).InfoS("NetworkFabricScore: scoring first pod in gang", "namespace", pod.Namespace, "pod", pod.Name, "podGroup", podGroup, "node", node.Name, "fabric", fabricType, "score", baseScore)
 		return int64(baseScore), nil
 	}
 
@@ -214,8 +212,7 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 	// Check minimum fabric tier requirement
 	if minTier := getMinFabricTier(pod); minTier != FabricUnknown {
 		if !meetsFabricTierRequirement(fabricType, minTier) {
-			klog.V(3).Infof("NetworkFabricScore: pod %s/%s on node %s, fabric %s below minimum %s, returning 0",
-				pod.Namespace, pod.Name, node.Name, fabricType, minTier)
+			klog.V(3).InfoS("NetworkFabricScore: fabric below minimum tier, returning 0", "namespace", pod.Namespace, "pod", pod.Name, "node", node.Name, "fabric", fabricType, "minTier", minTier)
 			return 0, nil
 		}
 	}
@@ -228,8 +225,7 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 		finalScore = 0
 	}
 
-	klog.V(4).Infof("NetworkFabricScore: pod %s/%s (gang %s) on node %s, fabric=%s, base=%d, locality=%d, workload=%d, final=%d",
-		pod.Namespace, pod.Name, podGroup, node.Name, fabricType, baseScore, localityScore, workloadAdjustment, finalScore)
+	klog.V(4).InfoS("NetworkFabricScore: scored gang pod", "namespace", pod.Namespace, "pod", pod.Name, "podGroup", podGroup, "node", node.Name, "fabric", fabricType, "baseScore", baseScore, "localityScore", localityScore, "workloadAdjustment", workloadAdjustment, "finalScore", finalScore)
 
 	return int64(finalScore), nil
 }
@@ -279,7 +275,7 @@ func (nf *NetworkFabricScore) getGangMemberPods(namespace, podGroup string) []*v
 
 	allPods, err := nf.podLister.Pods(namespace).List(labels.Everything())
 	if err != nil {
-		klog.Errorf("NetworkFabricScore: failed to list pods in namespace %s: %v", namespace, err)
+		klog.ErrorS(err, "NetworkFabricScore: failed to list pods", "namespace", namespace)
 		return nil
 	}
 
@@ -319,14 +315,14 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 
 		// Skip node lookup if nodeLister not provided (testing scenario)
 		if nodeLister == nil {
-			klog.V(5).Infof("NetworkFabricScore: nodeLister nil, skipping node lookup for %s", nodeName)
+			klog.V(5).InfoS("NetworkFabricScore: nodeLister nil, skipping node lookup", "node", nodeName)
 			continue
 		}
 
 		// Get node from node lister
 		node, err := nodeLister.Get(nodeName)
 		if err != nil {
-			klog.V(5).Infof("NetworkFabricScore: failed to get node %s: %v", nodeName, err)
+			klog.V(5).InfoS("NetworkFabricScore: failed to get node", "node", nodeName, "err", err)
 			continue
 		}
 
@@ -349,12 +345,11 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 	if candidateFabricID != "" {
 		if count := fabricDomains[candidateFabricID]; count > 0 {
 			localityScore += BonusSameFabricDomain
-			klog.V(5).Infof("NetworkFabricScore: fabric domain match %s (count=%d), bonus=%d",
-				candidateFabricID, count, BonusSameFabricDomain)
+			klog.V(5).InfoS("NetworkFabricScore: fabric domain match", "fabricID", candidateFabricID, "count", count, "bonus", BonusSameFabricDomain)
 		} else if len(fabricDomains) > 0 {
 			// Would split gang across fabric domains
 			localityScore -= PenaltyCrossFabric
-			klog.V(5).Infof("NetworkFabricScore: cross-fabric placement, penalty=%d", PenaltyCrossFabric)
+			klog.V(5).InfoS("NetworkFabricScore: cross-fabric placement", "penalty", PenaltyCrossFabric)
 		}
 	}
 
@@ -396,8 +391,7 @@ func (nf *NetworkFabricScore) getWorkloadFabricBonus(state framework.CycleState,
 	var workloadTypeStr string
 	if err == nil && profile != nil {
 		workloadTypeStr = strings.ToLower(string(profile.WorkloadType))
-		klog.V(5).Infof("NetworkFabricScore: pod %s/%s workload type from ProfileClassifier: %s",
-			pod.Namespace, pod.Name, workloadTypeStr)
+		klog.V(5).InfoS("NetworkFabricScore: workload type from ProfileClassifier", "namespace", pod.Namespace, "pod", pod.Name, "workloadType", workloadTypeStr)
 	} else {
 		// Fallback to local classification
 		workloadType := workload.ClassifyPod(pod)
@@ -409,8 +403,7 @@ func (nf *NetworkFabricScore) getWorkloadFabricBonus(state framework.CycleState,
 		default:
 			workloadTypeStr = "unknown"
 		}
-		klog.V(5).Infof("NetworkFabricScore: pod %s/%s workload type from local classification: %s",
-			pod.Namespace, pod.Name, workloadTypeStr)
+		klog.V(5).InfoS("NetworkFabricScore: workload type from local classification", "namespace", pod.Namespace, "pod", pod.Name, "workloadType", workloadTypeStr)
 	}
 
 	// Classify fabric tier (high vs low)
@@ -422,23 +415,23 @@ func (nf *NetworkFabricScore) getWorkloadFabricBonus(state framework.CycleState,
 	case "training", "batch":
 		// Training needs high bandwidth for collective operations (all-reduce, all-gather)
 		if isHighTierFabric {
-			klog.V(5).Infof("NetworkFabricScore: training workload on high-tier fabric, bonus=%d", BoostTrainingHighTier)
+			klog.V(5).InfoS("NetworkFabricScore: training workload on high-tier fabric", "bonus", BoostTrainingHighTier)
 			return BoostTrainingHighTier
 		}
 		if isLowTierFabric {
-			klog.V(5).Infof("NetworkFabricScore: training workload on low-tier fabric, penalty=%d", -PenaltyTrainingLowTier)
+			klog.V(5).InfoS("NetworkFabricScore: training workload on low-tier fabric", "penalty", -PenaltyTrainingLowTier)
 			return -PenaltyTrainingLowTier
 		}
 
 	case "inference", "service":
 		// Inference has lower bandwidth needs, can tolerate lower-tier fabrics
 		if isLowTierFabric {
-			klog.V(5).Infof("NetworkFabricScore: inference workload on low-tier fabric, bonus=%d", BoostInferenceLowTier)
+			klog.V(5).InfoS("NetworkFabricScore: inference workload on low-tier fabric", "bonus", BoostInferenceLowTier)
 			return BoostInferenceLowTier
 		}
 		if isHighTierFabric {
 			// Minor penalty for "wasting" high-tier fabric
-			klog.V(5).Infof("NetworkFabricScore: inference workload on high-tier fabric, minor penalty=%d", -PenaltyInferenceHighTier)
+			klog.V(5).InfoS("NetworkFabricScore: inference workload on high-tier fabric", "penalty", -PenaltyInferenceHighTier)
 			return -PenaltyInferenceHighTier
 		}
 

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	v1 "k8s.io/api/core/v1"
@@ -72,8 +73,8 @@ func (pm *PodMutator) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process the request
-	admissionResponse := pm.mutate(admissionReview.Request)
+	// Process the request using the incoming request context
+	admissionResponse := pm.mutate(r.Context(), admissionReview.Request)
 
 	// Construct response
 	responseAdmissionReview := admissionv1.AdmissionReview{
@@ -98,7 +99,7 @@ func (pm *PodMutator) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // mutate processes the admission request and returns admission response
-func (pm *PodMutator) mutate(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+func (pm *PodMutator) mutate(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 	if req == nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
@@ -154,7 +155,7 @@ func (pm *PodMutator) mutate(req *admissionv1.AdmissionRequest) *admissionv1.Adm
 	}
 
 	// Get namespace tier
-	tier, err := pm.getNamespaceTier(req.Namespace)
+	tier, err := pm.getNamespaceTier(ctx, req.Namespace)
 	if err != nil {
 		klog.V(4).InfoS("Failed to get namespace tier, allowing without mutation",
 			"namespace", req.Namespace,
@@ -210,8 +211,10 @@ func (pm *PodMutator) mutate(req *admissionv1.AdmissionRequest) *admissionv1.Adm
 }
 
 // getNamespaceTier retrieves the tenant tier from namespace labels
-func (pm *PodMutator) getNamespaceTier(namespace string) (string, error) {
-	ns, err := pm.clientset.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
+func (pm *PodMutator) getNamespaceTier(ctx context.Context, namespace string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	ns, err := pm.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get namespace: %w", err)
 	}

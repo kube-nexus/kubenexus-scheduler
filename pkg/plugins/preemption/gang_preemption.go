@@ -77,8 +77,7 @@ func (gp *GangPreemption) PostFilter(ctx context.Context, state framework.CycleS
 		return nil, framework.NewStatus(framework.Unschedulable, "not a gang pod")
 	}
 
-	klog.V(3).Infof("GangPreemption: PostFilter called for gang pod %s/%s (group: %s, minAvailable: %d)",
-		pod.Namespace, pod.Name, podGroupName, minAvailable)
+	klog.V(3).InfoS("GangPreemption: PostFilter called for gang pod", "namespace", pod.Namespace, "pod", pod.Name, "podGroup", podGroupName, "minAvailable", minAvailable)
 
 	// Get all nodes
 	nodeInfos, err := gp.handle.SnapshotSharedLister().NodeInfos().List()
@@ -89,21 +88,17 @@ func (gp *GangPreemption) PostFilter(ctx context.Context, state framework.CycleS
 	// Calculate how many resources the entire gang needs
 	gangResourceNeeds := gp.calculateGangResourceNeeds(pod, minAvailable)
 
-	klog.V(4).Infof("GangPreemption: gang %s/%s needs CPU: %dm, Memory: %dMi, GPUs: %d",
-		pod.Namespace, podGroupName,
-		gangResourceNeeds.CPU, gangResourceNeeds.Memory/1024/1024, gangResourceNeeds.GPU)
+	klog.V(4).InfoS("GangPreemption: gang resource needs", "namespace", pod.Namespace, "podGroup", podGroupName, "cpuMillis", gangResourceNeeds.CPU, "memoryMi", gangResourceNeeds.Memory/1024/1024, "gpus", gangResourceNeeds.GPU)
 
 	// Find victim pods that we can preempt to free up resources
 	victims := gp.findPreemptionVictims(state, pod, gangResourceNeeds, nodeInfos)
 
 	if len(victims) == 0 {
-		klog.V(3).Infof("GangPreemption: no suitable victims found for gang %s/%s",
-			pod.Namespace, podGroupName)
+		klog.V(3).InfoS("GangPreemption: no suitable victims found for gang", "namespace", pod.Namespace, "podGroup", podGroupName)
 		return nil, framework.NewStatus(framework.Unschedulable, "no preemption victims found")
 	}
 
-	klog.V(3).Infof("GangPreemption: found %d victim pods to preempt for gang %s/%s",
-		len(victims), pod.Namespace, podGroupName)
+	klog.V(3).InfoS("GangPreemption: found victim pods to preempt for gang", "victimCount", len(victims), "namespace", pod.Namespace, "podGroup", podGroupName)
 
 	// Create the preemption result
 	nominatedNodeName := gp.selectNominatedNode(victims, nodeInfos)
@@ -174,7 +169,7 @@ func (gp *GangPreemption) findPreemptionVictims(state framework.CycleState, gang
 	// Get all pods from all namespaces
 	allPods, err := gp.podLister.List(nil)
 	if err != nil {
-		klog.Errorf("GangPreemption: error listing pods: %v", err)
+		klog.ErrorS(err, "GangPreemption: error listing pods")
 		return nil
 	}
 
@@ -285,23 +280,18 @@ func (gp *GangPreemption) findPreemptionVictims(state framework.CycleState, gang
 		freedMemory += candidate.Memory
 		freedGPU += candidate.GPU
 
-		klog.V(4).Infof("GangPreemption: considering victim %s/%s (priority: %d, CPU: %dm, Memory: %dMi, GPU: %d)",
-			candidate.Pod.Namespace, candidate.Pod.Name, candidate.Priority,
-			candidate.CPU, candidate.Memory/1024/1024, candidate.GPU)
+		klog.V(4).InfoS("GangPreemption: considering victim", "namespace", candidate.Pod.Namespace, "pod", candidate.Pod.Name, "priority", candidate.Priority, "cpuMillis", candidate.CPU, "memoryMi", candidate.Memory/1024/1024, "gpus", candidate.GPU)
 
 		// Check if we have freed enough resources
 		if freedCPU >= needs.CPU && freedMemory >= needs.Memory && freedGPU >= needs.GPU {
-			klog.V(3).Infof("GangPreemption: found sufficient victims - freed CPU: %dm/%dm, Memory: %dMi/%dMi, GPU: %d/%d",
-				freedCPU, needs.CPU,
-				freedMemory/1024/1024, needs.Memory/1024/1024,
-				freedGPU, needs.GPU)
+			klog.V(3).InfoS("GangPreemption: found sufficient victims", "freedCPUMillis", freedCPU, "neededCPUMillis", needs.CPU, "freedMemoryMi", freedMemory/1024/1024, "neededMemoryMi", needs.Memory/1024/1024, "freedGPUs", freedGPU, "neededGPUs", needs.GPU)
 			break
 		}
 	}
 
 	// Verify we actually have enough resources after preemption
 	if freedCPU < needs.CPU || freedMemory < needs.Memory || freedGPU < needs.GPU {
-		klog.V(3).Infof("GangPreemption: insufficient resources even after preempting %d pods", len(victims))
+		klog.V(3).InfoS("GangPreemption: insufficient resources even after preemption", "victimCount", len(victims))
 		return nil
 	}
 
@@ -337,7 +327,7 @@ func (gp *GangPreemption) selectNominatedNode(victims []*v1.Pod, nodeInfos []fra
 	}
 
 	if bestNode != "" {
-		klog.V(3).Infof("GangPreemption: nominating node %s (will free %dm CPU)", bestNode, maxFreed)
+		klog.V(3).InfoS("GangPreemption: nominating node", "node", bestNode, "freedCPUMillis", maxFreed)
 	}
 
 	return bestNode

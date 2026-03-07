@@ -116,7 +116,7 @@ var (
 			Help:    "Quality score of GPU topology placements (0-100)",
 			Buckets: []float64{0, 25, 50, 75, 90, 95, 100},
 		},
-		[]string{"node", "topology_type"},
+		[]string{"topology_type"},
 	)
 
 	// FragmentationEvents tracks fragmentation prevention events
@@ -134,7 +134,7 @@ var (
 			Name: "kubenexus_gpu_data_source_usage_total",
 			Help: "GPU topology data source usage (DRA, NFD, manual labels)",
 		},
-		[]string{"source", "node"},
+		[]string{"source"},
 	)
 
 	// SchedulingLatency tracks plugin execution time
@@ -223,7 +223,7 @@ var (
 			Help:    "NUMA fit quality score (0-100)",
 			Buckets: []float64{0, 25, 50, 75, 90, 95, 100},
 		},
-		[]string{"node", "numa_id"},
+		[]string{"policy"},
 	)
 
 	// NumaMemoryBandwidthPressure tracks memory bandwidth utilization
@@ -232,7 +232,7 @@ var (
 			Name: "kubenexus_numa_memory_bandwidth_pressure_percent",
 			Help: "NUMA memory bandwidth pressure percentage",
 		},
-		[]string{"node", "numa_id"},
+		[]string{"pressure_level"},
 	)
 
 	// NumaDistancePenalty tracks cross-NUMA placement penalties
@@ -241,7 +241,7 @@ var (
 			Name: "kubenexus_numa_distance_penalty_total",
 			Help: "Cross-NUMA distance penalties applied",
 		},
-		[]string{"node", "distance_level"},
+		[]string{"distance_level"},
 	)
 
 	// NumaGangAffinitySuccess tracks successful gang NUMA co-location
@@ -289,7 +289,7 @@ var (
 			Help:    "Resource fragmentation score distribution",
 			Buckets: []float64{0, 10, 20, 30, 50, 75, 90, 100},
 		},
-		[]string{"node", "resource_type"},
+		[]string{"resource_type"},
 	)
 
 	// IslandQualityDistribution tracks GPU island quality distribution
@@ -299,6 +299,6 @@ var (
 			Help:    "GPU island topology quality score distribution",
 			Buckets: []float64{30, 50, 80, 100},
 		},
-		[]string{"node", "topology_type"},
+		[]string{"topology_type"},
 	)
 )

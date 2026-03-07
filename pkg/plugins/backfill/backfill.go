@@ -114,7 +114,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	// Use named return values and defer/recover to handle panics gracefully
 	defer func() {
 		if r := recover(); r != nil {
-			klog.V(4).Infof("BackfillScoring: recovered from panic in Score: %v", r)
+			klog.V(4).InfoS("BackfillScoring: recovered from panic in Score", "panic", r)
 			score = MaxNodeScore / 2 // Return neutral score on panic
 			status = framework.NewStatus(framework.Success, "")
 		}
@@ -136,7 +136,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	// Safety check: podLister can be nil during initialization
 	if b.podLister == nil {
-		klog.V(5).Infof("BackfillScoring: podLister not initialized, using neutral score")
+		klog.V(5).InfoS("BackfillScoring: podLister not initialized, using neutral score")
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
 
@@ -144,7 +144,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	// Sum up all pod requests on this node
 	allPods, err := b.podLister.List(nil)
 	if err != nil {
-		klog.V(4).Infof("BackfillScoring: failed to list pods: %v, using neutral score", err)
+		klog.V(4).InfoS("BackfillScoring: failed to list pods, using neutral score", "err", err)
 		// On error, return neutral score
 		return MaxNodeScore / 2, framework.NewStatus(framework.Success, "")
 	}
@@ -195,8 +195,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 		//   Node with 20% idle → score = 20 (low, avoid)
 		score = int64(idlePercent)
 
-		klog.V(5).Infof("BackfillScoring: backfill pod %s/%s on node %s (util=%.1f%%, idle=%.1f%%, score=%d)",
-			pod.Namespace, pod.Name, node.Name, utilization, idlePercent, score)
+		klog.V(5).InfoS("BackfillScoring: scoring backfill pod", "namespace", pod.Namespace, "pod", pod.Name, "node", node.Name, "utilization", utilization, "idlePercent", idlePercent, "score", score)
 
 	} else {
 		// REGULAR POD STRATEGY: Prefer nodes with LESS idle resources (bin packing)
@@ -213,8 +212,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 		//   Node with 20% utilized → score = 20 (low, avoid)
 		score = int64(utilization)
 
-		klog.V(5).Infof("BackfillScoring: regular pod %s/%s on node %s (util=%.1f%%, score=%d)",
-			pod.Namespace, pod.Name, node.Name, utilization, score)
+		klog.V(5).InfoS("BackfillScoring: scoring regular pod", "namespace", pod.Namespace, "pod", pod.Name, "node", node.Name, "utilization", utilization, "score", score)
 	}
 
 	return score, framework.NewStatus(framework.Success, "")
@@ -236,14 +234,12 @@ func (b *BackfillScoring) getPreemptibilityFromProfile(state framework.CycleStat
 	// Try ProfileClassifier first
 	profile, err := profileclassifier.GetProfile(&state)
 	if err == nil && profile != nil {
-		klog.V(4).Infof("BackfillScoring: pod %s/%s preemptibility from ProfileClassifier: %v",
-			pod.Namespace, pod.Name, profile.IsPreemptible)
+		klog.V(4).InfoS("BackfillScoring: pod preemptibility from ProfileClassifier", "namespace", pod.Namespace, "pod", pod.Name, "isPreemptible", profile.IsPreemptible)
 		return profile.IsPreemptible
 	}
 
 	// Fallback to local classification
-	klog.V(5).Infof("BackfillScoring: ProfileClassifier unavailable for pod %s/%s, using local classification",
-		pod.Namespace, pod.Name)
+	klog.V(5).InfoS("BackfillScoring: ProfileClassifier unavailable, using local classification", "namespace", pod.Namespace, "pod", pod.Name)
 	return b.isBackfillEligible(pod)
 }
 
@@ -281,14 +277,13 @@ func (b *BackfillScoring) getPreemptibilityFromProfile(state framework.CycleStat
 func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 	// Check explicit backfill label first (takes precedence)
 	if backfillLabel, exists := pod.Labels[BackfillLabelKey]; exists && backfillLabel == "true" {
-		klog.V(4).Infof("BackfillScoring: pod %s/%s marked as backfill via label", pod.Namespace, pod.Name)
+		klog.V(4).InfoS("BackfillScoring: pod marked as backfill via label", "namespace", pod.Namespace, "pod", pod.Name)
 		return true
 	}
 
 	// Check pod priority
 	if pod.Spec.Priority != nil && *pod.Spec.Priority <= BackfillPriorityThreshold {
-		klog.V(4).Infof("BackfillScoring: pod %s/%s eligible for backfill (priority=%d <= %d)",
-			pod.Namespace, pod.Name, *pod.Spec.Priority, BackfillPriorityThreshold)
+		klog.V(4).InfoS("BackfillScoring: pod eligible for backfill by priority", "namespace", pod.Namespace, "pod", pod.Name, "priority", *pod.Spec.Priority, "threshold", BackfillPriorityThreshold)
 		return true
 	}
 
@@ -300,7 +295,7 @@ func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
 
-	klog.V(3).Infof("BackfillScoring plugin initialized")
+	klog.V(3).InfoS("BackfillScoring plugin initialized")
 	return &BackfillScoring{
 		handle:    handle,
 		podLister: podLister,

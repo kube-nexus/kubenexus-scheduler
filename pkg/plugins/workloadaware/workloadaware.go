@@ -62,7 +62,7 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 	// Calculate node utilization (0-100%)
 	utilization, err := w.calculateNodeUtilization(nodeInfo)
 	if err != nil {
-		klog.V(4).Infof("WorkloadAware: %v, deferring scheduling", err)
+		klog.V(4).InfoS("WorkloadAware: error calculating utilization, deferring scheduling", "err", err)
 		return 0, framework.NewStatus(framework.Error, fmt.Sprintf("informer cache not ready: %v", err))
 	}
 
