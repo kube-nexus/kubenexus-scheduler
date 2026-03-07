@@ -69,4 +69,99 @@ var (
 		},
 		[]string{"namespace"},
 	)
+
+	// VRAM Scheduling Metrics
+
+	// VRAMPlacementDecisions tracks VRAM placement decisions
+	VRAMPlacementDecisions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_vram_placement_decisions_total",
+			Help: "Total number of VRAM placement decisions by outcome",
+		},
+		[]string{"outcome", "workload_type", "data_source"},
+	)
+
+	// VRAMNodeUtilization tracks VRAM utilization percentage per node
+	VRAMNodeUtilization = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kubenexus_vram_node_utilization_percent",
+			Help: "VRAM utilization percentage per node",
+		},
+		[]string{"node", "gpu_model"},
+	)
+
+	// VRAMRequestedBytes tracks VRAM requested by pods
+	VRAMRequestedBytes = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_vram_requested_bytes",
+			Help:    "VRAM requested by pods in bytes",
+			Buckets: []float64{8e9, 16e9, 24e9, 40e9, 48e9, 80e9, 160e9, 320e9}, // 8GB to 320GB
+		},
+		[]string{"namespace", "workload_type"},
+	)
+
+	// TopologyDecisions tracks topology-aware placement decisions
+	TopologyDecisions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_topology_decisions_total",
+			Help: "Total GPU topology placement decisions",
+		},
+		[]string{"topology_type", "success", "constraint_type"},
+	)
+
+	// TopologyQualityScore tracks the quality of topology placements
+	TopologyQualityScore = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_topology_quality_score",
+			Help:    "Quality score of GPU topology placements (0-100)",
+			Buckets: []float64{0, 25, 50, 75, 90, 95, 100},
+		},
+		[]string{"node", "topology_type"},
+	)
+
+	// FragmentationEvents tracks fragmentation prevention events
+	FragmentationEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_fragmentation_events_total",
+			Help: "Fragmentation prevention events",
+		},
+		[]string{"event_type", "prevented"},
+	)
+
+	// DataSourceUsage tracks which data source was used for GPU discovery
+	DataSourceUsage = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_gpu_data_source_usage_total",
+			Help: "GPU topology data source usage (DRA, NFD, manual labels)",
+		},
+		[]string{"source", "node"},
+	)
+
+	// SchedulingLatency tracks plugin execution time
+	SchedulingLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kubenexus_plugin_latency_seconds",
+			Help:    "Plugin execution latency in seconds",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
+		},
+		[]string{"plugin", "operation"},
+	)
+
+	// GPUAllocationSuccess tracks successful GPU allocations
+	GPUAllocationSuccess = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_gpu_allocation_success_total",
+			Help: "Successful GPU allocations by workload type",
+		},
+		[]string{"workload_type", "gpu_count", "topology_aware"},
+	)
+
+	// GPUAllocationFailures tracks GPU allocation failures
+	GPUAllocationFailures = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kubenexus_gpu_allocation_failures_total",
+			Help: "GPU allocation failures by reason",
+		},
+		[]string{"reason", "workload_type"},
+	)
 )

@@ -9,10 +9,10 @@ Thank you for using KubeNexus Scheduler! This document explains how to get help 
 Before opening an issue, please check our documentation:
 
 - **[README](README.md)** - Project overview and quick start
-- **[Architecture](docs/architecture.md)** - System design and components
-- **[Hybrid Scheduling Guide](docs/HYBRID_SCHEDULING.md)** - Hybrid scheduling features
+- **[Version Compatibility Guide](docs/VERSION_COMPATIBILITY.md)** - Kubernetes version support and migration paths
+- **[Architecture](docs/ARCHITECTURE.md)** - System design and components
+- **[User Guide](docs/USER_GUIDE.md)** - Comprehensive usage guide
 - **[Operator CRD Support](docs/OPERATOR_CRD_SUPPORT.md)** - Integration with Kubeflow, Spark, Argo, and Ray
-- **[Comparison & Roadmap](docs/COMPARISON_AND_ROADMAP.md)** - Comparison with other schedulers
 
 ### Community Support
 

@@ -137,22 +137,23 @@ Pod → Classification → Topology Scoring → Gang Scheduling → Binding
 
 | Feature | Kueue | YuniKorn | KubeNexus |
 |---------|-------|----------|-----------|
-| **Hierarchical queues** | ✅ Yes | ✅ Yes | ❌ No |
-| **Resource quotas** | ✅ Strong | ✅ Strong | ⚠️ K8s only |
-| **Fair sharing** | ✅ Weighted | ✅ DRF | ❌ No |
-| **Preemption** | ✅ Queue priority | ✅ Fair-share | ✅ Basic |
+| **Hierarchical queues** | ✅ Yes | ✅ Yes | ➡️ Use Kueue |
+| **Resource quotas** | ✅ Strong | ✅ Strong | ➡️ Use Kueue |
+| **Fair sharing (DRF)** | ✅ Weighted | ✅ DRF | ➡️ Use Kueue |
+| **Preemption** | ✅ Queue priority | ✅ Fair-share | ✅ Topology-aware |
 
-**Winner**: Kueue & YuniKorn (tie)
+**Winner**: Kueue & YuniKorn (admission control)  
+**Note**: KubeNexus focuses on *placement*, not *admission*. Use Kueue for quotas/fair-share.
 
 ---
 
 ## Use Case Recommendations
 
 ### Large-Scale ML Platform (500+ GPUs, 10+ teams)
-**Recommended**: **Kueue + YuniKorn**
-- Kueue for quota management
-- YuniKorn for gang scheduling and fair-share
-- Proven at scale
+**Recommended**: **Kueue + KubeNexus** or **Kueue + YuniKorn**
+- Kueue for quota management and fair-share (DRF)
+- KubeNexus for GPU topology optimization and fragmentation prevention
+- YuniKorn alternative if Spark-focused and need application-level tracking
 
 ### Spark on Kubernetes
 **Recommended**: **YuniKorn**
@@ -172,8 +173,14 @@ Pod → Classification → Topology Scoring → Gang Scheduling → Binding
 - NVLink detection
 - GPU-CPU affinity
 
-### Enterprise Multi-Tenancy
-**Recommended**: **Kueue or YuniKorn**
+### Enterprise Multi-Tenancy with GPU Topology Needs
+**Recommended**: **Kueue (admission) + KubeNexus (placement)**
+- Kueue: Strong quota management, hierarchical queues, DRF fair-share
+- KubeNexus: GPU topology optimization, fragmentation prevention
+- Best of both: admission control + intelligent placement
+
+### Enterprise Multi-Tenancy (CPU/memory focus)
+**Recommended**: **Kueue** or **YuniKorn**
 - Strong quota management
 - Hierarchical queues
 - Fair-share scheduling

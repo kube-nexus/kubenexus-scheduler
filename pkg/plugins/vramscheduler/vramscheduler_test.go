@@ -50,6 +50,21 @@ func TestScoreExtensions(t *testing.T) {
 }
 
 func TestGetVRAMRequest(t *testing.T) {
+	// Set up test framework and scheduler instance (no nodes needed for this test)
+	fh, err := testutil.NewTestFramework(nil,
+		frameworkruntime.WithSnapshotSharedLister(testutil.NewFakeSharedLister(nil, nil)))
+	if err != nil {
+		t.Fatalf("Failed to create test framework: %v", err)
+	}
+
+	plugin, err := New(context.Background(), nil, fh)
+	if err != nil {
+		t.Fatalf("Failed to create VRAMScheduler: %v", err)
+	}
+
+	scheduler := plugin.(*VRAMScheduler)
+	ctx := context.Background()
+
 	tests := []struct {
 		name           string
 		annotations    map[string]string
@@ -114,7 +129,7 @@ func TestGetVRAMRequest(t *testing.T) {
 					ResourceClaims: tt.resourceClaims,
 				},
 			}
-			vram := getVRAMRequest(pod)
+			vram := scheduler.getVRAMRequest(ctx, pod)
 			if vram != tt.expectedVRAM {
 				t.Errorf("Expected VRAM %d bytes, got %d bytes", tt.expectedVRAM, vram)
 			}
