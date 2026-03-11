@@ -297,7 +297,15 @@ func (cs *Coscheduling) Permit(ctx context.Context, state framework.CycleState, 
 	klog.V(3).InfoS("Permit: pod group ready to schedule",
 		"namespace", namespace, "podGroup", podGroupName, "current", current, "minAvailable", minAvailable)
 	schedulermetrics.GangSchedulingDecisions.WithLabelValues("success", namespace).Inc()
-	schedulermetrics.GangCompletionLatency.WithLabelValues(namespace, podGroupName, fmt.Sprintf("%d", minAvailable)).Observe(time.Since(time.Now()).Seconds())
+
+	// Record gang completion latency from initial submission time
+	key := utils.GetPodGroupKey(namespace, podGroupName)
+	if pgInfoVal, ok := cs.podGroupInfos.Load(key); ok {
+		if pgInfo, ok := pgInfoVal.(*PodGroupInfo); ok && pgInfo.timestamp.Unix() > 0 {
+			age := time.Since(pgInfo.timestamp)
+			schedulermetrics.GangCompletionLatency.WithLabelValues(namespace, podGroupName, fmt.Sprintf("%d", minAvailable)).Observe(age.Seconds())
+		}
+	}
 
 	// Safely call IterateOverWaitingPods with recovery for test frameworks
 	if cs.frameworkHandle != nil {
@@ -367,11 +375,17 @@ func (cs *Coscheduling) calculateTotalPods(podGroupName, namespace string) int {
 }
 
 func (cs *Coscheduling) calculateRunningPodsExcluding(podGroupName, namespace string, excludeName string) int {
-	selector := labels.Set{PodGroupName: podGroupName}.AsSelector()
+	// Try new label first (match calculateTotalPods logic)
+	selector := labels.Set{"pod-group.scheduling.kubenexus.io/name": podGroupName}.AsSelector()
 	pods, err := cs.podLister.Pods(namespace).List(selector)
-	if err != nil {
-		klog.ErrorS(err, "calculateRunningPods: error listing pods")
-		return 0
+	if err != nil || len(pods) == 0 {
+		// Fallback to old label for backward compatibility
+		selector = labels.Set{PodGroupName: podGroupName}.AsSelector()
+		pods, err = cs.podLister.Pods(namespace).List(selector)
+		if err != nil {
+			klog.ErrorS(err, "calculateRunningPods: error listing pods")
+			return 0
+		}
 	}
 
 	running := 0

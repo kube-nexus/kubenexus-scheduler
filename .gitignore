@@ -6,9 +6,11 @@
 *.out
 coverage.txt
 
-# Binaries in root directory
+# Binaries in root directory (should be in /bin only)
 kubenexus-scheduler
 kubenexus-webhook
+/scheduler
+/webhook
 
 # used for the code generators only
 /vendor/

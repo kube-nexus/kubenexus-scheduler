@@ -21,6 +21,7 @@ package resourcefragmentation
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
@@ -66,6 +67,7 @@ type ResourceFragmentationScore struct {
 }
 
 var _ framework.ScorePlugin = &ResourceFragmentationScore{}
+var _ framework.FilterPlugin = &ResourceFragmentationScore{}
 
 type GPUIsland struct {
 	NodeName      string
@@ -81,6 +83,49 @@ type GPUIsland struct {
 
 func (rf *ResourceFragmentationScore) Name() string {
 	return Name
+}
+
+// Filter filters out nodes that don't have sufficient GPUs or violate tenant restrictions
+func (rf *ResourceFragmentationScore) Filter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
+	requestedGPUs := getGPURequest(pod)
+	if requestedGPUs == 0 {
+		// No GPU request, allow node
+		return framework.NewStatus(framework.Success)
+	}
+
+	island := rf.detectGPUIsland(nodeInfo)
+	if island == nil {
+		// No GPU island detected, filter out
+		return framework.NewStatus(framework.Unschedulable, "node has no GPU resources")
+	}
+
+	// Check if node has sufficient GPUs
+	if island.AvailableGPUs < requestedGPUs {
+		klog.V(3).InfoS("Filter: insufficient GPUs on node",
+			"pod", klog.KObj(pod),
+			"node", nodeInfo.Node().Name,
+			"requested", requestedGPUs,
+			"available", island.AvailableGPUs)
+		return framework.NewStatus(framework.Unschedulable,
+			fmt.Sprintf("insufficient GPUs: need %d, available %d", requestedGPUs, island.AvailableGPUs))
+	}
+
+	// TENANT-AWARE ISLAND PROTECTION: Hard reject if tenant mismatch
+	podTenantTier := rf.getPodTenantTier(state, pod)
+	if island.TenantTier != "" && island.TenantTier != "none" {
+		if !rf.isTenantAllowed(podTenantTier, island.TenantTier) {
+			klog.V(3).InfoS("Filter: rejecting node due to tenant tier mismatch",
+				"pod", klog.KObj(pod),
+				"node", nodeInfo.Node().Name,
+				"podTenantTier", podTenantTier,
+				"nodeTenantTier", island.TenantTier)
+			return framework.NewStatus(framework.Unschedulable,
+				fmt.Sprintf("pod tenant %s cannot use node reserved for tenant %s",
+					podTenantTier, island.TenantTier))
+		}
+	}
+
+	return framework.NewStatus(framework.Success)
 }
 
 func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
@@ -237,8 +282,9 @@ func (rf *ResourceFragmentationScore) detectGPUIsland(nodeInfo framework.NodeInf
 	}
 
 	isPristine := allocatedGPUCount == 0
-	if val, ok := node.Labels[LabelGPUIsPristine]; ok && val == "true" {
-		isPristine = true
+	// Label explicitly overrides allocation count
+	if val, ok := node.Labels[LabelGPUIsPristine]; ok {
+		isPristine = val == "true"
 	}
 
 	// Check if node is reserved for a specific tenant tier
