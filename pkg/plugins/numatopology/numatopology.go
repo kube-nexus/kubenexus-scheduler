@@ -23,6 +23,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -156,6 +157,7 @@ type GangNUMAState struct {
 // NUMATopology implements NUMA-aware scheduling with advanced features
 type NUMATopology struct {
 	handle    framework.Handle
+	mu        sync.RWMutex              // Protect gangState from concurrent access
 	gangState map[string]*GangNUMAState // Gang group -> state
 }
 
@@ -300,17 +302,22 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		}
 
 		// 1. NUMA FIT QUALITY (40%)
-		cpuUtilization := float64(podCPU) / float64(len(numa.CPUs)) * 100.0
-		memUtilization := float64(podMemory) / float64(numa.TotalMemory) * 100.0
+		// Calculate remaining capacity after placing pod
+		cpuRemaining := float64(numa.AvailableCPUs - int(podCPU))
+		memRemaining := float64(numa.AvailableMemory - podMemory)
 
-		// Weighted average: 60% CPU, 40% memory
-		utilization := (cpuUtilization * 0.6) + (memUtilization * 0.4)
-
-		// Optimal utilization: 50-70% (leaves room for growth, not too fragmented)
-		fitScore = 100.0 - math.Abs(utilization-60.0)
-		if fitScore < 0 {
-			fitScore = 0
+		// Normalize to 0-1 range (higher is better - more room for growth)
+		cpuFitScore := cpuRemaining / float64(len(numa.CPUs))
+		if cpuFitScore < 0 {
+			cpuFitScore = 0
 		}
+		memFitScore := memRemaining / float64(numa.TotalMemory)
+		if memFitScore < 0 {
+			memFitScore = 0
+		}
+
+		// Weighted average: 60% CPU, 40% memory (prefer CPU locality)
+		fitScore = (cpuFitScore*0.6 + memFitScore*0.4) * 100.0
 
 		// Boost if in preferred NUMA list
 		if n.isNUMAInList(numa.ID, preferredNUMAs) {
@@ -688,8 +695,11 @@ func (n *NUMATopology) calculateGangAffinityScore(pod *v1.Pod, numa NUMANode, no
 		return 50.0 // Neutral score, not a gang member
 	}
 
-	// Get gang state
+	// Get gang state (with lock)
+	n.mu.RLock()
 	gangState, exists := n.gangState[gangGroup]
+	n.mu.RUnlock()
+
 	if !exists || len(gangState.AssignedMembers) == 0 {
 		return 50.0 // First gang member, neutral score
 	}
@@ -752,6 +762,10 @@ func (n *NUMATopology) recordGangPlacement(pod *v1.Pod, numaID int, node *v1.Nod
 	if !exists || gangGroup == "" {
 		return
 	}
+
+	// Lock for gang state access
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	// Initialize gang state if needed
 	if n.gangState == nil {

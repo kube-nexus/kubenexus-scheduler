@@ -431,8 +431,13 @@ func (rr *ResourceReservation) isGangComplete(pod *v1.Pod, podGroupName string, 
 			continue
 		}
 
-		// Count pods that are scheduled (have NodeName assigned)
-		if p.Spec.NodeName != "" {
+		// Skip terminating pods (don't count them as scheduled)
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+
+		// Count pods that are scheduled (have NodeName assigned) and running
+		if p.Spec.NodeName != "" && p.Status.Phase == v1.PodRunning {
 			scheduledCount++
 		}
 	}
