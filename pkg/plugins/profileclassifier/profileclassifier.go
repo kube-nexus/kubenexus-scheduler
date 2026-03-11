@@ -232,6 +232,11 @@ func (pl *ProfileClassifier) classifyWorkload(pod *v1.Pod) WorkloadType {
 		return parseWorkloadType(wlType)
 	}
 
+	// Check for interactive workloads first (before batch/service classification)
+	if isInteractiveWorkload(pod) {
+		return WorkloadInteractive
+	}
+
 	basicType := workload.ClassifyPod(pod)
 
 	switch basicType {
@@ -286,6 +291,63 @@ func isInferenceWorkload(pod *v1.Pod) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// isInteractiveWorkload detects interactive workloads (Jupyter, RStudio, etc.)
+func isInteractiveWorkload(pod *v1.Pod) bool {
+	// Check for explicit interactive annotation
+	if val, ok := pod.Labels["workload.kubenexus.io/type"]; ok && val == "interactive" {
+		return true
+	}
+	if val, ok := pod.Annotations["workload.kubenexus.io/type"]; ok && val == "interactive" {
+		return true
+	}
+
+	// Detect Jupyter notebooks
+	if _, ok := pod.Labels["app.jupyter.org/hub-version"]; ok {
+		return true
+	}
+	if _, ok := pod.Labels["app.kubernetes.io/name"]; ok {
+		if name := pod.Labels["app.kubernetes.io/name"]; name == "jupyter" || name == "jupyterhub" {
+			return true
+		}
+	}
+
+	// Detect RStudio Server
+	if _, ok := pod.Labels["app.rstudio.com/rstudio-server"]; ok {
+		return true
+	}
+	if name, ok := pod.Labels["app.kubernetes.io/name"]; ok && name == "rstudio" {
+		return true
+	}
+
+	// Detect VS Code / Code Server
+	if name, ok := pod.Labels["app.kubernetes.io/name"]; ok {
+		if name == "code-server" || name == "vscode" {
+			return true
+		}
+	}
+
+	// Detect general interactive IDE/REPL environments
+	if app, ok := pod.Labels["app.kubernetes.io/name"]; ok {
+		app = strings.ToLower(app)
+		if strings.Contains(app, "ide") || strings.Contains(app, "repl") ||
+			strings.Contains(app, "lab") || strings.Contains(app, "notebook") {
+			return true
+		}
+	}
+
+	// Check image names for interactive workloads
+	for _, container := range pod.Spec.Containers {
+		image := strings.ToLower(container.Image)
+		if strings.Contains(image, "jupyter") || strings.Contains(image, "rstudio") ||
+			strings.Contains(image, "code-server") || strings.Contains(image, "vscode") ||
+			strings.Contains(image, "nteract") {
+			return true
+		}
+	}
+
 	return false
 }
 
