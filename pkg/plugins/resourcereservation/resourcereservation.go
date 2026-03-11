@@ -25,6 +25,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -50,6 +51,16 @@ const (
 
 	// reservationFinalizer prevents premature deletion of reservations during scheduling
 	reservationFinalizer = "scheduling.kubenexus.io/reservation-protection"
+
+	// reservationTTL is the maximum time a reservation can exist before being auto-cleaned
+	// This prevents stale reservations from blocking resources forever
+	reservationTTL = 30 * time.Minute
+
+	// reservationCleanupInterval is how often we check for and clean up stale reservations
+	reservationCleanupInterval = 5 * time.Minute
+
+	// GPU resource name
+	GPUResourceName = "nvidia.com/gpu"
 )
 
 var podGroupVersionKind = v1.SchemeGroupVersion.WithKind("Pod")
@@ -62,6 +73,9 @@ type ResourceReservation struct {
 
 	// Track which gangs have had reservations created
 	gangReservationsCreated sync.Map // map[gangKey]bool
+
+	// Track cleanup goroutine
+	stopCh chan struct{}
 }
 
 // Ensure ResourceReservation implements all required interfaces
@@ -115,12 +129,18 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 		return nil, err
 	}
 
-	return &ResourceReservation{
+	rr := &ResourceReservation{
 		frameworkHandle:         handle,
 		podLister:               podLister,
 		client:                  client,
 		gangReservationsCreated: sync.Map{},
-	}, nil
+		stopCh:                  make(chan struct{}),
+	}
+
+	// Start background cleanup goroutine
+	go rr.cleanupStaleReservations()
+
+	return rr, nil
 }
 
 func setConfigDefaults(config *rest.Config) error {
@@ -321,6 +341,7 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 	// Calculate per-pod resources (assume all pods in gang have same requests)
 	cpuPerPod := resource.Quantity{}
 	memPerPod := resource.Quantity{}
+	gpuPerPod := resource.Quantity{}
 
 	if len(pod.Spec.Containers) > 0 {
 		container := pod.Spec.Containers[0]
@@ -329,6 +350,10 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 		}
 		if mem, ok := container.Resources.Requests[v1.ResourceMemory]; ok {
 			memPerPod = mem
+		}
+		// Also capture GPU requests if present
+		if gpu, ok := container.Resources.Requests[v1.ResourceName(GPUResourceName)]; ok {
+			gpuPerPod = gpu
 		}
 	}
 
@@ -339,8 +364,17 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 			Node:   "", // Not assigned yet - filter will check all nodes
 			CPU:    cpuPerPod,
 			Memory: memPerPod,
+			// Note: GPU capacity would need to be tracked separately or in extended Reservation type
+			// For now, we track CPU and Memory which are the primary constraints
 		}
 	}
+
+	klog.V(4).InfoS("Creating gang reservations",
+		"podGroup", podGroupName,
+		"minAvailable", minAvailable,
+		"cpuPerPod", cpuPerPod.String(),
+		"memPerPod", memPerPod.String(),
+		"gpuPerPod", gpuPerPod.String())
 
 	reservation := &v1alpha1.ResourceReservation{
 		ObjectMeta: metav1.ObjectMeta{
@@ -589,4 +623,114 @@ func (r *reservationState) Clone() framework.StateData {
 		gangKey:      r.gangKey,
 		reservations: r.reservations,
 	}
+}
+
+// cleanupStaleReservations runs periodically to remove old reservations that are no longer needed
+func (rr *ResourceReservation) cleanupStaleReservations() {
+	ticker := time.NewTicker(reservationCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-rr.stopCh:
+			klog.V(3).InfoS("ResourceReservation cleanup goroutine stopping")
+			return
+		case <-ticker.C:
+			rr.cleanupExpiredReservations()
+		}
+	}
+}
+
+// cleanupExpiredReservations deletes reservations that have exceeded TTL
+func (rr *ResourceReservation) cleanupExpiredReservations() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	klog.V(5).InfoS("ResourceReservation: running cleanup of expired reservations")
+
+	// Iterate over tracked gangs and check if they need cleanup
+	rr.gangReservationsCreated.Range(func(key, value interface{}) bool {
+		gangKey, _ := key.(string)
+		parts := strings.Split(gangKey, "/")
+		if len(parts) != 2 {
+			return true
+		}
+		namespace := parts[0]
+		podGroupName := parts[1]
+
+		// List reservations in this namespace
+		result := &v1alpha1.ResourceReservationList{}
+		err := rr.client.Get().
+			Namespace(namespace).
+			Resource("resourcereservations").
+			Do(ctx).
+			Into(result)
+
+		if err != nil {
+			klog.V(4).InfoS("Failed to list reservations for cleanup",
+				"namespace", namespace, "gangKey", gangKey, "error", err)
+			return true
+		}
+
+		now := time.Now()
+		for _, res := range result.Items {
+			if res.Labels != nil && res.Labels["pod-group"] == podGroupName {
+				// Check if reservation is older than TTL
+				creationTime := res.CreationTimestamp.Time
+				if now.Sub(creationTime) > reservationTTL {
+					klog.V(3).InfoS("Cleaning up expired reservation",
+						"namespace", namespace, "name", res.Name, "age", now.Sub(creationTime))
+
+					// Check if gang is still active
+					if !rr.isGangCompleteOrExpired(namespace, podGroupName) {
+						// Gang still active, don't cleanup
+						return true
+					}
+
+					// Safe to delete
+					if hasFinalizer(res.Finalizers, reservationFinalizer) {
+						updated := res.DeepCopy()
+						updated.Finalizers = removeFinalizer(updated.Finalizers, reservationFinalizer)
+						if err := rr.update(ctx, updated); err != nil {
+							klog.V(3).ErrorS(err, "Failed to remove finalizer from expired reservation",
+								"namespace", namespace, "name", res.Name)
+						}
+					}
+					if err := rr.delete(ctx, namespace, res.Name); err != nil {
+						klog.V(3).ErrorS(err, "Failed to delete expired reservation",
+							"namespace", namespace, "name", res.Name)
+					} else {
+						// Successfully deleted, can remove from tracking
+						rr.gangReservationsCreated.Delete(gangKey)
+					}
+				}
+			}
+		}
+		return true
+	})
+}
+
+// isGangCompleteOrExpired checks if a gang is complete (all pods running) or has no pending pods
+func (rr *ResourceReservation) isGangCompleteOrExpired(namespace, podGroupName string) bool {
+	pods, err := rr.podLister.Pods(namespace).List(nil)
+	if err != nil {
+		return false
+	}
+
+	gangPodCount := 0
+	runningCount := 0
+	for _, pod := range pods {
+		pgName, _, pgErr := utils.GetPodGroupLabels(pod)
+		if pgErr != nil || pgName != podGroupName {
+			continue
+		}
+
+		gangPodCount++
+		if pod.Status.Phase == v1.PodRunning && pod.Spec.NodeName != "" {
+			runningCount++
+		}
+	}
+
+	// Gang is complete if all pods are running, or expired if no pods exist
+	return gangPodCount == 0 || runningCount == gangPodCount
 }
