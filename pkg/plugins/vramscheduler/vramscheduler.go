@@ -243,8 +243,9 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 
 	// Calculate how many GPUs the pod needs based on GPU request
 	gpusRequested := getGPURequest(pod)
-	if gpusRequested == 0 {
-		gpusRequested = 1 // Default to 1 GPU if not specified
+	if gpusRequested == 0 && vramRequest > 0 {
+		// Only default to 1 GPU if VRAM was explicitly requested
+		gpusRequested = 1
 	}
 
 	// Calculate total VRAM needed and available
@@ -702,7 +703,11 @@ func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (
 	// PRIORITY 1: DRA ResourceSlices (Kubernetes 1.34+)
 	// Provides: Full topology (VRAM, NUMA, PCIe, NVLink), dynamic updates
 	if v.resourceSliceLister != nil {
-		vramPerGPU, devices, err := v.getGPUTopologyFromDRA(ctx, node)
+		// Add 5-second timeout to DRA queries to prevent scheduler stalls
+		draCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		vramPerGPU, devices, err := v.getGPUTopologyFromDRA(draCtx, node)
+		cancel()
+
 		if err == nil && len(devices) > 0 {
 			klog.V(4).InfoS("✅ Using GPU topology from DRA ResourceSlices",
 				"node", node.Name,
@@ -712,9 +717,14 @@ func (v *VRAMScheduler) getNodeGPUTopology(ctx context.Context, node *v1.Node) (
 			schedulermetrics.DataSourceUsage.WithLabelValues("DRA").Inc()
 			return vramPerGPU, devices
 		}
-		klog.V(5).InfoS("DRA ResourceSlices not available, trying NFD labels",
-			"node", node.Name,
-			"reason", err)
+		if err == context.DeadlineExceeded {
+			klog.V(3).InfoS("DRA query timeout, falling back to NFD",
+				"node", node.Name)
+		} else {
+			klog.V(5).InfoS("DRA ResourceSlices not available, trying NFD labels",
+				"node", node.Name,
+				"reason", err)
+		}
 	} else {
 		klog.V(5).InfoS("DRA not available (lister nil), trying NFD labels",
 			"node", node.Name)
