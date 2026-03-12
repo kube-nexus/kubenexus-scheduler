@@ -47,6 +47,14 @@ const (
 
 	// MaxNodeScore is the maximum score a node can get.
 	MaxNodeScore = framework.MaxNodeScore
+
+	// GPU resource name
+	GPUResourceName = "nvidia.com/gpu"
+
+	// Utilization weights
+	WeightCPU    = 0.35 // 35% weight for CPU
+	WeightMemory = 0.35 // 35% weight for Memory
+	WeightGPU    = 0.30 // 30% weight for GPU (critical in GPU clusters)
 )
 
 // Name returns the name of the plugin.
@@ -121,7 +129,7 @@ func (w *WorkloadAware) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
-// Considers both CPU and memory, weighted equally.
+// Considers CPU, memory, and GPU resources with appropriate weights for GPU clusters.
 func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (float64, error) {
 	node := nodeInfo.Node()
 	if node == nil {
@@ -131,6 +139,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 	// Get node allocatable resources
 	allocatableCPU := float64(node.Status.Allocatable.Cpu().MilliValue())
 	allocatableMemory := float64(node.Status.Allocatable.Memory().Value())
+	allocatableGPU := node.Status.Allocatable[v1.ResourceName(GPUResourceName)]
 
 	if allocatableCPU == 0 || allocatableMemory == 0 {
 		return 0, nil
@@ -149,6 +158,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 
 	requestedCPU := float64(0)
 	requestedMemory := float64(0)
+	requestedGPU := float64(0)
 
 	// Only sum pods that are scheduled on THIS specific node
 	for _, pod := range allPods {
@@ -156,6 +166,9 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 			for _, container := range pod.Spec.Containers {
 				requestedCPU += float64(container.Resources.Requests.Cpu().MilliValue())
 				requestedMemory += float64(container.Resources.Requests.Memory().Value())
+				if gpu, ok := container.Resources.Requests[v1.ResourceName(GPUResourceName)]; ok {
+					requestedGPU += float64(gpu.Value())
+				}
 			}
 		}
 	}
@@ -164,12 +177,25 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 	cpuUtilization := (requestedCPU / allocatableCPU) * 100.0
 	memoryUtilization := (requestedMemory / allocatableMemory) * 100.0
 
-	// Return weighted average (50% CPU, 50% Memory)
-	// Cap at 100% to handle overcommitted nodes
-	utilization := (cpuUtilization + memoryUtilization) / 2.0
-	if utilization > 100.0 {
-		utilization = 100.0
+	// GPU utilization calculation (only if node has GPUs)
+	gpuUtilization := 0.0
+	if allocatableGPU.Value() > 0 {
+		gpuUtilization = (requestedGPU / float64(allocatableGPU.Value())) * 100.0
 	}
+
+	// Cap individual utilizations at 100%
+	if cpuUtilization > 100.0 {
+		cpuUtilization = 100.0
+	}
+	if memoryUtilization > 100.0 {
+		memoryUtilization = 100.0
+	}
+	if gpuUtilization > 100.0 {
+		gpuUtilization = 100.0
+	}
+
+	// Return weighted average based on resource importance in GPU clusters
+	utilization := (cpuUtilization * WeightCPU) + (memoryUtilization * WeightMemory) + (gpuUtilization * WeightGPU)
 
 	return utilization, nil
 }

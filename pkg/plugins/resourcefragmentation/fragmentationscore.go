@@ -142,6 +142,9 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 	// Get pod's tenant tier from ProfileClassifier
 	podTenantTier := rf.getPodTenantTier(state, pod)
 
+	// Get pod's workload type from ProfileClassifier
+	podWorkloadType := rf.getPodWorkloadType(state, pod)
+
 	// TENANT-AWARE ISLAND PROTECTION:
 	// Prevent lower-tier tenants from fragmenting higher-tier tenant islands
 	if island.TenantTier != "" && island.TenantTier != "none" {
@@ -155,6 +158,21 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 			schedulermetrics.IslandProtectionEvents.WithLabelValues("tenant_mismatch", "true").Inc()
 			return PenaltyTenantMismatch, framework.NewStatus(framework.Success)
 		}
+	}
+
+	// WORKLOAD-AWARE ISLAND PROTECTION:
+	// Prevent workloads from fragmenting islands reserved for different workload types
+	// Training jobs need 8-GPU islands, inference/batch can use fragmented nodes
+	workloadPenalty := rf.calculateWorkloadFragmentationPenalty(pod, island, podWorkloadType)
+	if workloadPenalty > 0 {
+		klog.V(4).InfoS("Applying workload-aware fragmentation penalty",
+			"pod", klog.KObj(pod),
+			"workloadType", podWorkloadType,
+			"islandSize", island.TotalGPUs,
+			"islandQuality", island.Quality,
+			"penalty", workloadPenalty)
+		schedulermetrics.IslandProtectionEvents.WithLabelValues("workload_mismatch", "true").Inc()
+		return workloadPenalty, framework.NewStatus(framework.Success)
 	}
 
 	// PRISTINE ISLAND PROTECTION:
@@ -345,6 +363,53 @@ func getGPURequest(pod *v1.Pod) int {
 		}
 	}
 	return totalGPUs
+}
+
+// getPodWorkloadType gets the workload type from ProfileClassifier
+func (rf *ResourceFragmentationScore) getPodWorkloadType(state framework.CycleState, pod *v1.Pod) string {
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return string(profile.WorkloadType)
+	}
+	// Default to unknown if ProfileClassifier not available
+	return "unknown"
+}
+
+// calculateWorkloadFragmentationPenalty computes penalty based on workload type mismatch
+// Training jobs should use pristine islands, inference/batch can use fragmented nodes
+func (rf *ResourceFragmentationScore) calculateWorkloadFragmentationPenalty(pod *v1.Pod, island *GPUIsland, workloadType string) int64 {
+	requestedGPUs := getGPURequest(pod)
+
+	// Training workloads: prefer large pristine islands (8+ GPUs)
+	// Prevent fragmentation of training-ready islands
+	if workloadType == "training" || workloadType == "batch" {
+		// If this is a high-quality island (NVSwitch/NVLink) and pod is small, penalize
+		// to preserve the island for training jobs
+		if island.Quality >= IslandQualityNVLink && island.TotalGPUs >= 8 {
+			if requestedGPUs < island.TotalGPUs/2 && !island.IsPristine {
+				// Small request on partially-allocated training island = bad
+				return PenaltyFragmentLargeIsland + 10
+			}
+		}
+	}
+
+	// Inference workloads: safe to use any node (distributed inference okay)
+	if workloadType == "inference" || workloadType == "service" {
+		// No special penalty for inference on training islands
+		// Inference can gracefully handle distribution
+		return 0
+	}
+
+	// Interactive workloads: prefer isolated nodes to avoid interference
+	if workloadType == "interactive" {
+		// If island is nearly full, avoid adding interactive workload
+		utilization := (int64(island.AllocatedGPUs) * 100) / int64(island.TotalGPUs)
+		if utilization > 75 {
+			return 15 // Mild penalty to prefer less-utilized nodes
+		}
+	}
+
+	return 0
 }
 
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
