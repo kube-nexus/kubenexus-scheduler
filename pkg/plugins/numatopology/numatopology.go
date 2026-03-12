@@ -134,6 +134,10 @@ const (
 	WeightMemoryBandwidth = 0.25 // 25% weight for memory bandwidth availability
 	WeightNUMADistance    = 0.20 // 20% weight for NUMA distance/latency
 	WeightGangAffinity    = 0.15 // 15% weight for gang member affinity
+
+	// GPU-NUMA co-alignment
+	BonusGPUNUMACoLocation = 15 // Bonus when GPU and CPU are on same NUMA
+	PenaltyGPUNUMAMismatch = 25 // Penalty when GPU and CPU on different NUMA
 )
 
 // NUMANode represents a single NUMA node on a server
@@ -215,9 +219,19 @@ func (n *NUMATopology) Filter(ctx context.Context, state framework.CycleState, p
 	// Calculate pod resource requirements
 	podCPU, podMemory := n.getPodResourceRequests(pod)
 
+	// Get GPU-NUMA mapping if pod requests GPUs
+	gpuNUMAMapping := n.getGPUNUMAMapping(node, pod)
+
 	// Check if pod fits in any single NUMA node
 	for _, numa := range numaNodes {
 		if numa.AvailableCPUs >= int(podCPU) && numa.AvailableMemory >= podMemory {
+			// If pod requests GPUs, verify co-alignment
+			if len(gpuNUMAMapping) > 0 && !n.canFitGPUsInNUMA(pod, &numa, gpuNUMAMapping) {
+				klog.V(5).InfoS("NUMATopology: skipping NUMA due to GPU-NUMA mismatch",
+					"pod", klog.KObj(pod), "numaNode", numa.ID, "node", node.Name)
+				continue
+			}
+
 			klog.V(4).InfoS("NUMATopology: pod fits in NUMA node",
 				"pod", klog.KObj(pod), "cpu", podCPU, "memoryGB", podMemory/(1024*1024*1024), "numaNode", numa.ID, "node", node.Name)
 			return framework.NewStatus(framework.Success, "")
@@ -282,6 +296,9 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 	// Get NUMA affinity preferences
 	preferredNUMAs, avoidNUMAs := n.getNUMAAffinityPreferences(pod)
 
+	// Get GPU-NUMA mapping
+	gpuNUMAMapping := n.getGPUNUMAMapping(node, pod)
+
 	// Find best NUMA node fit
 	var bestScore float64
 	bestNUMAID := -1
@@ -345,11 +362,22 @@ func (n *NUMATopology) Score(ctx context.Context, state framework.CycleState, po
 		// 4. GANG AFFINITY SCORE (15%)
 		gangScore = n.calculateGangAffinityScore(pod, numa, node)
 
+		// 5. GPU-NUMA CO-ALIGNMENT BONUS (applied as adjustment)
+		gpuBonus := float64(n.calculateGPUNUMABonus(pod, &numa, gpuNUMAMapping))
+
 		// Calculate weighted total score
 		totalScore := (fitScore * WeightNUMAFit) +
 			(memBandwidthScore * WeightMemoryBandwidth) +
 			(distanceScore * WeightNUMADistance) +
-			(gangScore * WeightGangAffinity)
+			(gangScore * WeightGangAffinity) +
+			gpuBonus
+
+		// Cap score at 100
+		if totalScore > 100.0 {
+			totalScore = 100.0
+		} else if totalScore < 0 {
+			totalScore = 0
+		}
 
 		if totalScore > bestScore {
 			bestScore = totalScore
@@ -807,4 +835,92 @@ func categorizePressure(utilization float64) string {
 	default:
 		return "low"
 	}
+}
+
+// getGPUNUMAMapping extracts GPU-to-NUMA node mapping from node labels
+// Returns map[gpuIndex]numaNodeID
+// Supports labels like: gpu.kubenexus.io/numa-node-0=0, gpu.kubenexus.io/numa-node-1=1
+func (n *NUMATopology) getGPUNUMAMapping(node *v1.Node, pod *v1.Pod) map[int]int {
+	mapping := make(map[int]int)
+
+	if node.Labels == nil {
+		return mapping
+	}
+
+	// Try to extract GPU count and NUMA mappings
+	for i := 0; i < 16; i++ { // Support up to 16 GPUs
+		label := fmt.Sprintf("gpu.kubenexus.io/numa-node-%d", i)
+		if numaStr, ok := node.Labels[label]; ok {
+			if numaID, err := strconv.Atoi(numaStr); err == nil {
+				mapping[i] = numaID
+			}
+		}
+	}
+
+	return mapping
+}
+
+// canFitGPUsInNUMA checks if requested GPUs can be placed on the target NUMA node
+func (n *NUMATopology) canFitGPUsInNUMA(pod *v1.Pod, numa *NUMANode, gpuNUMAMapping map[int]int) bool {
+	// Get GPU request count
+	gpusRequested := 0
+	for _, container := range pod.Spec.Containers {
+		if gpu, ok := container.Resources.Requests[v1.ResourceName("nvidia.com/gpu")]; ok {
+			gpusRequested += int(gpu.Value())
+		}
+	}
+
+	if gpusRequested == 0 {
+		return true // No GPU request, allow
+	}
+
+	if len(gpuNUMAMapping) == 0 {
+		// No GPU-NUMA mapping info, allow (assume kubelet will handle)
+		return true
+	}
+
+	// Count how many requested GPUs can fit on target NUMA node
+	gpusOnNUMA := 0
+	for _, numaID := range gpuNUMAMapping {
+		if numaID == numa.ID {
+			gpusOnNUMA++
+		}
+	}
+
+	// Check if we have enough GPUs on this NUMA node
+	return gpusOnNUMA >= gpusRequested
+}
+
+// calculateGPUNUMABonus calculates bonus/penalty for GPU-NUMA alignment
+func (n *NUMATopology) calculateGPUNUMABonus(pod *v1.Pod, numa *NUMANode, gpuNUMAMapping map[int]int) int64 {
+	gpusRequested := 0
+	for _, container := range pod.Spec.Containers {
+		if gpu, ok := container.Resources.Requests[v1.ResourceName("nvidia.com/gpu")]; ok {
+			gpusRequested += int(gpu.Value())
+		}
+	}
+
+	if gpusRequested == 0 {
+		return 0 // No GPU request, no bonus
+	}
+
+	if len(gpuNUMAMapping) == 0 {
+		return 0 // No GPU-NUMA mapping info, no bonus
+	}
+
+	// Count GPUs on target NUMA node
+	gpusOnNUMA := 0
+	for _, numaID := range gpuNUMAMapping {
+		if numaID == numa.ID {
+			gpusOnNUMA++
+		}
+	}
+
+	// If all requested GPUs are on same NUMA as CPUs, give bonus
+	if gpusOnNUMA >= gpusRequested {
+		return BonusGPUNUMACoLocation
+	}
+
+	// If some GPUs are on different NUMA, apply penalty
+	return -PenaltyGPUNUMAMismatch
 }

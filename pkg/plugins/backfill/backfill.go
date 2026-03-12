@@ -29,6 +29,9 @@ import (
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/plugins/profileclassifier"
 )
 
+// GPU resource name constant
+const GPUResourceName = "nvidia.com/gpu"
+
 // BackfillScoring implements opportunistic scheduling to maximize cluster utilization
 // by allowing low-priority "backfill" pods to use idle resources that would otherwise
 // be wasted.
@@ -128,6 +131,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	// Calculate node resource utilization
 	allocatableCPU := float64(node.Status.Allocatable.Cpu().MilliValue())
 	allocatableMemory := float64(node.Status.Allocatable.Memory().Value())
+	allocatableGPU := node.Status.Allocatable[v1.ResourceName(GPUResourceName)]
 
 	if allocatableCPU == 0 || allocatableMemory == 0 {
 		// Node has no allocatable resources, return neutral score
@@ -151,6 +155,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	requestedCPU := float64(0)
 	requestedMemory := float64(0)
+	requestedGPU := float64(0)
 
 	// Only sum pods that are scheduled on THIS specific node
 	for _, podOnNode := range allPods {
@@ -158,6 +163,9 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 			for _, container := range podOnNode.Spec.Containers {
 				requestedCPU += float64(container.Resources.Requests.Cpu().MilliValue())
 				requestedMemory += float64(container.Resources.Requests.Memory().Value())
+				if gpu, ok := container.Resources.Requests[v1.ResourceName(GPUResourceName)]; ok {
+					requestedGPU += float64(gpu.Value())
+				}
 			}
 		}
 	}
@@ -166,8 +174,29 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	cpuUtilization := (requestedCPU / allocatableCPU) * 100.0
 	memoryUtilization := (requestedMemory / allocatableMemory) * 100.0
 
-	// Weighted average: 60% CPU, 40% Memory (CPU is typically more constrained)
-	utilization := (cpuUtilization * 0.6) + (memoryUtilization * 0.4)
+	// GPU utilization calculation (only if node has GPUs)
+	gpuUtilization := 0.0
+	if allocatableGPU.Value() > 0 {
+		gpuUtilization = (requestedGPU / float64(allocatableGPU.Value())) * 100.0
+	}
+
+	// Cap individual utilizations at 100%
+	if cpuUtilization > 100.0 {
+		cpuUtilization = 100.0
+	}
+	if memoryUtilization > 100.0 {
+		memoryUtilization = 100.0
+	}
+	if gpuUtilization > 100.0 {
+		gpuUtilization = 100.0
+	}
+
+	// Weighted average: 35% CPU, 35% Memory, 30% GPU (critical in GPU clusters)
+	// For nodes without GPUs, GPU utilization is 0 and doesn't affect score
+	utilization := (cpuUtilization * 0.35) + (memoryUtilization * 0.35)
+	if allocatableGPU.Value() > 0 {
+		utilization += (gpuUtilization * 0.30)
+	}
 
 	// Cap at 100% to handle overcommitted nodes
 	if utilization > 100.0 {
@@ -179,6 +208,14 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	// Determine if this is a backfill pod
 	isBackfillPod := b.getPreemptibilityFromProfile(state, pod)
+
+	// Get pod's tenant tier for tenant-aware scoring
+	tenantTier := b.getTenantTierFromProfile(state, pod)
+
+	// Apply tenant-aware adjustments
+	// Silver/Bronze backfill should avoid Gold-reserved resources
+	tenantAdjustment := b.calculateTenantAdjustment(tenantTier, node)
+	utilization += tenantAdjustment
 
 	if isBackfillPod {
 		// BACKFILL POD STRATEGY: Prefer nodes with MORE idle resources
@@ -289,6 +326,52 @@ func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 
 	// Default: treat pods without priority as regular (not backfill)
 	return false
+}
+
+// getTenantTierFromProfile gets pod's tenant tier from ProfileClassifier
+func (b *BackfillScoring) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
+	profile, err := profileclassifier.GetProfile(&state)
+	if err == nil && profile != nil {
+		return string(profile.TenantTier)
+	}
+	// Default to bronze if ProfileClassifier not available
+	return "bronze"
+}
+
+// calculateTenantAdjustment applies tenant-aware penalty to backfill pods
+// Silver/Bronze backfill pods get penalty for using Gold-reserved resources
+func (b *BackfillScoring) calculateTenantAdjustment(tenantTier string, node *v1.Node) float64 {
+	// Check if node is reserved for a specific tenant tier
+	if node.Labels == nil {
+		return 0
+	}
+
+	reservedTier, ok := node.Labels["tenant.kubenexus.io/reserved-tier"]
+	if !ok {
+		return 0 // No reservation, no adjustment
+	}
+
+	// Tenant hierarchy: gold > silver > bronze
+	tierPriority := map[string]int{
+		"gold":   3,
+		"silver": 2,
+		"bronze": 1,
+	}
+
+	podPriority := tierPriority[tenantTier]
+	nodePriority := tierPriority[reservedTier]
+
+	// If pod tier is lower than node's reserved tier, apply penalty
+	if podPriority < nodePriority {
+		penalty := float64(nodePriority-podPriority) * 15.0 // 15-30 point penalty
+		klog.V(4).InfoS("BackfillScoring: applying tenant tier penalty",
+			"podTier", tenantTier,
+			"nodeReservedTier", reservedTier,
+			"penalty", penalty)
+		return -penalty
+	}
+
+	return 0 // No penalty if tier matches or exceeds
 }
 
 // New initializes a new BackfillScoring plugin and returns it.
