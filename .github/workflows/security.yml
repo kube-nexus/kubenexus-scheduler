@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '0 6 * * 1'  # Weekly on Monday
 
+permissions:
+  security-events: write
+  contents: read
+
 jobs:
   trivy:
     name: Trivy Security Scan
@@ -27,7 +31,7 @@ jobs:
         severity: 'CRITICAL,HIGH'
     
     - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
@@ -51,7 +55,7 @@ jobs:
         args: '-fmt sarif -out gosec-results.sarif ./...'
     
     - name: Upload Gosec results
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       if: always()
       with:
         sarif_file: 'gosec-results.sarif'
