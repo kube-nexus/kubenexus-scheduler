@@ -64,9 +64,8 @@ test-integration:
 
 .PHONY: test-e2e
 test-e2e:
-	@echo "E2E tests require a Kind cluster with KWOK and fake GPU nodes."
-	@echo "Run hack/e2e-setup.sh first, then: go test -v -timeout 300s ./test/e2e/"
-	@echo "Skipping E2E tests in CI (no cluster available)..."
+	@echo "Running E2E tests (requires Kind+KWOK cluster from hack/e2e-setup.sh)..."
+	$(BUILDENVVAR) go test -v -count=1 -timeout 10m ./test/e2e/
 
 .PHONY: test-coverage
 test-coverage:
