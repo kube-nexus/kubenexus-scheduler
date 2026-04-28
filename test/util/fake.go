@@ -144,7 +144,7 @@ func NewTestFrameworkWithPods(pods []*v1.Pod, nodes []*v1.Node, registeredPlugin
 	informerFactory.Core().V1().Nodes().Informer()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	_ = cancel // caller doesn't need to cancel; informers will GC with test
+	defer cancel()
 	informerFactory.Start(ctx.Done())
 	informerFactory.WaitForCacheSync(ctx.Done())
 
