@@ -217,6 +217,12 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	// Silver/Bronze backfill should avoid Gold-reserved resources
 	tenantAdjustment := b.calculateTenantAdjustment(tenantTier, node)
 	utilization += tenantAdjustment
+	if utilization < 0 {
+		utilization = 0
+	}
+	if utilization > 100 {
+		utilization = 100
+	}
 
 	if isBackfillPod {
 		// BACKFILL POD STRATEGY: Prefer nodes with MORE idle resources

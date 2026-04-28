@@ -30,6 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -455,7 +456,7 @@ func (rr *ResourceReservation) isGangComplete(pod *v1.Pod, podGroupName string, 
 	namespace := pod.Namespace
 
 	// Count running + bound pods in gang
-	pods, err := rr.podLister.Pods(namespace).List(nil)
+	pods, err := rr.podLister.Pods(namespace).List(labels.Everything())
 	if err != nil {
 		return false
 	}
@@ -714,7 +715,7 @@ func (rr *ResourceReservation) cleanupExpiredReservations() {
 
 // isGangCompleteOrExpired checks if a gang is complete (all pods running) or has no pending pods
 func (rr *ResourceReservation) isGangCompleteOrExpired(namespace, podGroupName string) bool {
-	pods, err := rr.podLister.Pods(namespace).List(nil)
+	pods, err := rr.podLister.Pods(namespace).List(labels.Everything())
 	if err != nil {
 		return false
 	}
