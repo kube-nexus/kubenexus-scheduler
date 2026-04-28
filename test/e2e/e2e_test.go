@@ -498,33 +498,3 @@ func TestUnschedulableExcessGPU(t *testing.T) {
 	}
 	t.Log("Pod is pending (not yet evaluated or no scheduling condition set)")
 }
-
-// -----------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------
-
-func dumpPodStatus(t *testing.T, ctx context.Context, namespace string) {
-	t.Helper()
-	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		t.Logf("Failed to list pods: %v", err)
-		return
-	}
-	for _, pod := range pods.Items {
-		t.Logf("  %s: phase=%s node=%s", pod.Name, pod.Status.Phase, pod.Spec.NodeName)
-		for _, cond := range pod.Status.Conditions {
-			if cond.Status != v1.ConditionTrue {
-				t.Logf("    %s: %s — %s", cond.Type, cond.Status, cond.Message)
-			}
-		}
-	}
-}
-
-func nodeNamesContain(nodes map[string]bool, prefix string) bool {
-	for n := range nodes {
-		if strings.HasPrefix(n, prefix) {
-			return true
-		}
-	}
-	return false
-}

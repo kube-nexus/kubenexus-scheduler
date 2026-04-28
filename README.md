@@ -6,12 +6,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Status](https://img.shields.io/badge/Status-Beta-yellow.svg)]()
 
-**Workload-Aware, Topology-Optimized Scheduler for Heterogeneous Kubernetes Clusters**
-
-KubeNexus optimizes last-mile placement across CPU and GPU fleets.
-It adapts placement strategy (pack vs spread) based on workload intent and preserves accelerator topology (NVLink/NUMA) to prevent fragmentation and tenant interference.
-
-Works standalone or layered with Kueue for admission and fairness.
+**A workload- and tenant-aware placement scheduler for heterogeneous GPU clusters, designed to complement [Kueue](https://kueue.sigs.k8s.io/). Kueue handles admission, quotas, and fairness; KubeNexus preserves topology, reduces fragmentation, and prevents placement-level tenant interference after admission.**
 
 > **⚠️ Beta Status**: Ready for testing in dev/staging. Production use should be carefully evaluated.
 
@@ -31,29 +26,6 @@ Works standalone or layered with Kueue for admission and fairness.
 
 - **Standalone**: Workload-aware placement + topology/interference control using native Kubernetes primitives (PriorityClasses, ResourceQuotas, namespaces)
 - **With Kueue**: [Kueue](https://kueue.sigs.k8s.io/) handles admission/quotas/flavors; KubeNexus optimizes node-level and topology-aware placement within admitted intent
-
----
-
-## The Problem
-
-Modern AI/ML infrastructure requires:
-- **Multiple Teams** (Gold/Silver/Bronze tiers)
-- **Multiple Workload Types** (Training/Inference/Service/Batch)
-- **Multiple Hardware Tiers** (H100/A100/L40 GPUs)
-
-**Economic Waste**: Bronze teams land on expensive H100s. Gold teams find no H100 capacity. Training jobs spread across zones. Service workloads bin-pack on one node. $960k/year wasted on $2.4M GPU infrastructure through poor placement.
-
-**Manual Complexity**: Multiple scheduler profiles, complex pod specs, per-team configuration.
-
-## KubeNexus Solution
-
-**Automatic 3-Axis Placement:**
-
-✅ **WHO** (Tenant Tier): Gold→H100, Silver→A100, Bronze→L40  
-✅ **WHAT** (Workload Type): Training→bin pack, Service→spread  
-✅ **WHERE** (Hardware): NUMA, NVSwitch, GPU topology optimization
-
-**One scheduler. Zero manual configuration.**
 
 ---
 
@@ -183,22 +155,7 @@ Keeps distributed training within NVSwitch/NVLink domains (100 score) vs Etherne
 # - Both tenants place successfully
 ```
 
-**Multi-tenancy at the placement-quality layer**: Kueue ensures fair admission; KubeNexus prevents topology fragmentation that breaks feasibility.
-
-**With Kueue integration** (adds admission control):
-
-- **Quotas & fairness**: ResourceQuotas, cohort borrowing, weighted fair share
-- **Queue management**: Prevents cluster flooding, prioritizes admission
-- **Kueue FlavorFungibility**: Kueue admits, KubeNexus optimizes node placement within flavor
-
-```yaml
-# Kueue admits pod (quota check) → KubeNexus schedules (topology optimization)
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  annotations:
-    scheduling.kubenexus.io/tier: "gold"
-```
+**Multi-tenancy at the placement-quality layer**: Kueue ensures fair admission; KubeNexus prevents topology fragmentation that breaks feasibility. See [Integrations](#integrations) for Kueue setup.
 
 📖 [Details](docs/FEATURES.md#multi-tenant-placement-quality) | [Architecture](docs/ARCHITECTURE.md)
 
