@@ -59,13 +59,14 @@ test-webhook:
 
 .PHONY: test-integration
 test-integration:
-	@echo "Integration tests not yet implemented"
-	@echo "Skipping integration tests..."
+	@echo "Running integration tests..."
+	$(BUILDENVVAR) go test -v -timeout 120s ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e:
-	@echo "E2E tests not yet implemented"
-	@echo "Skipping E2E tests..."
+	@echo "E2E tests require a Kind cluster with KWOK and fake GPU nodes."
+	@echo "Run hack/e2e-setup.sh first, then: go test -v -timeout 300s ./test/e2e/"
+	@echo "Skipping E2E tests in CI (no cluster available)..."
 
 .PHONY: test-coverage
 test-coverage:
@@ -141,6 +142,24 @@ kind-test:
 kind-cleanup:
 	@echo "Cleaning up Kind cluster..."
 	kind delete cluster --name kubenexus-test
+
+.PHONY: e2e-setup
+e2e-setup:
+	@echo "Setting up e2e cluster with KWOK fake GPU nodes..."
+	./hack/e2e-setup.sh
+
+.PHONY: e2e-test
+e2e-test:
+	@echo "Running e2e tests..."
+	go test ./test/e2e/ -v -count=1
+
+.PHONY: e2e-teardown
+e2e-teardown:
+	@echo "Tearing down e2e cluster..."
+	./hack/e2e-setup.sh teardown
+
+.PHONY: e2e
+e2e: e2e-setup e2e-test
 
 .PHONY: kind-logs
 kind-logs:

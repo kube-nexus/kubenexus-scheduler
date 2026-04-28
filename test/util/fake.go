@@ -137,9 +137,16 @@ func NewTestFrameworkWithPods(pods []*v1.Pod, nodes []*v1.Node, registeredPlugin
 	cs := clientsetfake.NewSimpleClientset(objects...)
 
 	informerFactory := informers.NewSharedInformerFactory(cs, 0)
-	stopCh := make(chan struct{})
-	informerFactory.Start(stopCh)
-	informerFactory.WaitForCacheSync(stopCh)
+
+	// Prime informers that plugins will request via SharedInformerFactory()
+	// so they are registered before Start() is called.
+	informerFactory.Core().V1().Pods().Informer()
+	informerFactory.Core().V1().Nodes().Informer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	informerFactory.Start(ctx.Done())
+	informerFactory.WaitForCacheSync(ctx.Done())
 
 	// Give informer cache a moment to fully populate
 	time.Sleep(200 * time.Millisecond)

@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
@@ -47,6 +49,9 @@ import (
 type GangPreemption struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister
+	// lastPreemptionAttempts tracks the last preemption attempt per pod group
+	// to enforce MinimumPreemptionGap and prevent preemption storms.
+	lastPreemptionAttempts sync.Map // map[string]time.Time (key: namespace/podGroupName)
 }
 
 var _ framework.PostFilterPlugin = &GangPreemption{}
@@ -78,6 +83,17 @@ func (gp *GangPreemption) PostFilter(ctx context.Context, state framework.CycleS
 	}
 
 	klog.V(3).InfoS("GangPreemption: PostFilter called for gang pod", "namespace", pod.Namespace, "pod", pod.Name, "podGroup", podGroupName, "minAvailable", minAvailable)
+
+	// Enforce MinimumPreemptionGap to prevent preemption thrashing at scale
+	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+	if lastAttempt, ok := gp.lastPreemptionAttempts.Load(gangKey); ok {
+		if elapsed := time.Since(lastAttempt.(time.Time)); elapsed < MinimumPreemptionGap {
+			klog.V(3).InfoS("GangPreemption: skipping preemption within cooldown",
+				"podGroup", podGroupName, "elapsed", elapsed, "gap", MinimumPreemptionGap)
+			return nil, framework.NewStatus(framework.Unschedulable, "preemption cooldown active")
+		}
+	}
+	gp.lastPreemptionAttempts.Store(gangKey, time.Now())
 
 	// Get all nodes
 	nodeInfos, err := gp.handle.SnapshotSharedLister().NodeInfos().List()
@@ -173,7 +189,7 @@ func (gp *GangPreemption) findPreemptionVictims(state framework.CycleState, gang
 	var candidates []VictimCandidate
 
 	// Get all pods from all namespaces
-	allPods, err := gp.podLister.List(nil)
+	allPods, err := gp.podLister.List(labels.Everything())
 	if err != nil {
 		klog.ErrorS(err, "GangPreemption: error listing pods")
 		return nil
@@ -341,7 +357,7 @@ func (gp *GangPreemption) selectNominatedNode(victims []*v1.Pod, nodeInfos []fra
 
 // getTenantTierFromProfile gets tenant tier using ProfileClassifier.
 func (gp *GangPreemption) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return strings.ToLower(string(profile.TenantTier))
 	}
@@ -387,7 +403,7 @@ func getTierPriority(tier string) int {
 // markVictimForPreemption annotates a pod to indicate it's being preempted for a gang
 // This helps ResourceReservation track preemption and ensure atomicity
 func (gp *GangPreemption) markVictimForPreemption(pod *v1.Pod, ganGroupName string) {
-	if pod == nil || pod.Annotations == nil {
+	if pod == nil {
 		return
 	}
 

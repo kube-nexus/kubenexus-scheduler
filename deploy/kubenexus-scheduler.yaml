@@ -72,6 +72,9 @@ rules:
 - apiGroups: ["scheduling.kubenexus.io"]
   resources: ["resourcereservations/status"]
   verbs: ["update", "patch"]
+- apiGroups: ["resource.k8s.io"]
+  resources: ["resourceclaimtemplates"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -104,24 +107,39 @@ data:
     profiles:
     - schedulerName: kubenexus-scheduler
       plugins:
-        # Queue sorting - prioritize gang scheduling pods
         queueSort:
           enabled:
           - name: Coscheduling
           disabled:
           - name: "*"
-        # PreFilter phase - validate gang scheduling requirements
         preFilter:
           enabled:
+          - name: ProfileClassifier
           - name: Coscheduling
-        # Permit phase - wait for all pods in gang to be ready
+        filter:
+          enabled:
+          - name: NetworkFabricScore
+          - name: VRAMScheduler
+          - name: NUMATopology
+        score:
+          enabled:
+          - name: WorkloadAwareScoring
+          - name: TopologyScoring
+          - name: BackfillScoring
+          - name: ResourceFragmentationScore
+          - name: TenantHardwareAffinityScore
+          - name: VRAMScheduler
+          - name: NetworkFabricScore
+          - name: NUMATopology
         permit:
           enabled:
           - name: Coscheduling
-        # Reserve phase - reserve resources for gang
         reserve:
           enabled:
           - name: Coscheduling
+        postFilter:
+          enabled:
+          - name: GangPreemption
 ---
 apiVersion: apps/v1
 kind: Deployment

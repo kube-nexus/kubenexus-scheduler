@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -48,6 +49,8 @@ type Coscheduling struct {
 	podGroupManager *utils.PodGroupManager
 	// Key is namespace/podGroupName
 	podGroupInfos sync.Map
+	// podGroupCount tracks the number of entries in podGroupInfos for size-cap enforcement
+	podGroupCount atomic.Int64
 	// Metrics and monitoring
 	schedulingAttempts map[string]int
 	// stopCh signals the cleanup goroutine to stop
@@ -59,6 +62,11 @@ const (
 	staleEntryTTL = 10 * time.Minute
 	// cleanupInterval is how often the cleanup goroutine runs
 	cleanupInterval = 2 * time.Minute
+	// maxPodGroupEntries is the hard cap on number of tracked pod groups
+	// to prevent unbounded memory growth at 130K+ node scale.
+	// At 100 new gangs/minute with 10min TTL, steady state is ~1000 entries.
+	// Cap at 50K provides headroom for burst patterns.
+	maxPodGroupEntries = 50000
 )
 
 // PodGroupInfo stores metadata about a pod group
@@ -184,6 +192,12 @@ func (cs *Coscheduling) getPodGroupInfoFromQueued(queuedInfo framework.QueuedPod
 		key := utils.GetPodGroupKey(p.Namespace, podGroupName)
 		pgInfo, ok := cs.podGroupInfos.Load(key)
 		if !ok {
+			// Enforce size cap before inserting new entries
+			if cs.podGroupCount.Load() >= maxPodGroupEntries {
+				klog.V(2).InfoS("Coscheduling: pod group map at capacity, triggering emergency eviction",
+					"count", cs.podGroupCount.Load(), "cap", maxPodGroupEntries)
+				cs.evictOldestEntries()
+			}
 			timestamp := queuedInfo.GetTimestamp()
 			pgInfo = &PodGroupInfo{
 				name:           podGroupName,
@@ -192,7 +206,9 @@ func (cs *Coscheduling) getPodGroupInfoFromQueued(queuedInfo framework.QueuedPod
 				timestamp:      timestamp,
 				lastUpdateTime: time.Now(),
 			}
-			cs.podGroupInfos.Store(key, pgInfo)
+			if _, loaded := cs.podGroupInfos.LoadOrStore(key, pgInfo); !loaded {
+				cs.podGroupCount.Add(1)
+			}
 		}
 		//nolint:errcheck // Type assertion is safe here; stored value is always *PodGroupInfo
 		return pgInfo.(*PodGroupInfo)
@@ -211,7 +227,7 @@ func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleStat
 	klog.InfoS("PreFilter called", "pod", klog.KObj(p), "labels", p.Labels)
 
 	// Check ProfileClassifier first for gang membership
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	isGang := false
 	if err == nil && profile != nil {
 		isGang = profile.IsGang
@@ -456,14 +472,56 @@ func (cs *Coscheduling) cleanupStaleEntries() {
 				pgInfo, ok := value.(*PodGroupInfo)
 				if !ok {
 					cs.podGroupInfos.Delete(key)
+					cs.podGroupCount.Add(-1)
 					return true
 				}
 				if now.Sub(pgInfo.lastUpdateTime) > staleEntryTTL {
 					klog.V(5).InfoS("Evicting stale pod group entry", "key", key, "age", now.Sub(pgInfo.lastUpdateTime))
 					cs.podGroupInfos.Delete(key)
+					cs.podGroupCount.Add(-1)
 				}
 				return true
 			})
 		}
 	}
+}
+
+// evictOldestEntries performs emergency eviction when the map hits capacity.
+// Evicts the oldest 20% of entries by lastUpdateTime.
+func (cs *Coscheduling) evictOldestEntries() {
+	type entry struct {
+		key        interface{}
+		updateTime time.Time
+	}
+
+	var entries []entry
+	cs.podGroupInfos.Range(func(key, value interface{}) bool {
+		if pgInfo, ok := value.(*PodGroupInfo); ok {
+			entries = append(entries, entry{key: key, updateTime: pgInfo.lastUpdateTime})
+		}
+		return true
+	})
+
+	// Evict oldest 20%
+	evictCount := len(entries) / 5
+	if evictCount < 1 {
+		evictCount = 1
+	}
+
+	// Partial sort: find the evictCount oldest entries
+	// Simple approach: iterate and find oldest N entries
+	for i := 0; i < evictCount && i < len(entries); i++ {
+		oldestIdx := i
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].updateTime.Before(entries[oldestIdx].updateTime) {
+				oldestIdx = j
+			}
+		}
+		entries[i], entries[oldestIdx] = entries[oldestIdx], entries[i]
+		cs.podGroupInfos.Delete(entries[i].key)
+		cs.podGroupCount.Add(-1)
+	}
+
+	klog.V(2).InfoS("Coscheduling: emergency eviction complete",
+		"evicted", evictCount, "remaining", cs.podGroupCount.Load())
 }

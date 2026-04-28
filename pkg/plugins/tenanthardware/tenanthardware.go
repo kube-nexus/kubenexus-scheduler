@@ -124,7 +124,7 @@ func (tha *TenantHardwareAffinity) ScoreExtensions() framework.ScoreExtensions {
 // falls back to local classification if ProfileClassifier is not enabled
 func (tha *TenantHardwareAffinity) getTenantPriorityFromProfile(state framework.CycleState, pod *v1.Pod) string {
 	// Try to get profile from ProfileClassifier (preferred)
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		// Map ProfileClassifier tenant tiers to our priority levels
 		priority := tha.mapTenantTierToPriority(profile.TenantTier)

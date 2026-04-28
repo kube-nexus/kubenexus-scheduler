@@ -1,0 +1,94 @@
+# KWOK Stage configurations for faking pod/node lifecycle.
+# When pods are scheduled to KWOK nodes, these stages make them
+# appear as Running so the scheduler sees realistic cluster state.
+---
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: node-heartbeat
+spec:
+  resourceRef:
+    apiGroup: v1
+    kind: Node
+  selector:
+    matchExpressions:
+    - key: '.metadata.annotations["kwok.x-k8s.io/node"]'
+      operator: In
+      values: ["fake"]
+  delay:
+    durationMilliseconds: 600000
+    jitterDurationMilliseconds: 90000
+  next:
+    statusTemplate: |
+      {{ $now := Now }}
+      conditions:
+      {{ range .status.conditions }}
+      - lastHeartbeatTime: {{ $now | Quote }}
+        lastTransitionTime: {{ .lastTransitionTime | Quote }}
+        message: {{ .message | Quote }}
+        reason: {{ .reason | Quote }}
+        status: {{ .status | Quote }}
+        type: {{ .type }}
+      {{ end }}
+---
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: pod-ready
+spec:
+  resourceRef:
+    apiGroup: v1
+    kind: Pod
+  selector:
+    matchExpressions:
+    - key: '.metadata.deletionTimestamp'
+      operator: DoesNotExist
+    - key: '.status.podIP'
+      operator: DoesNotExist
+  next:
+    statusTemplate: |
+      {{ $now := Now }}
+      conditions:
+      - lastTransitionTime: {{ $now | Quote }}
+        status: "True"
+        type: Initialized
+      - lastTransitionTime: {{ $now | Quote }}
+        status: "True"
+        type: Ready
+      - lastTransitionTime: {{ $now | Quote }}
+        status: "True"
+        type: ContainersReady
+      - lastTransitionTime: {{ $now | Quote }}
+        status: "True"
+        type: PodScheduled
+      containerStatuses:
+      {{ range .spec.containers }}
+      - image: {{ .image | Quote }}
+        name: {{ .name | Quote }}
+        ready: true
+        restartCount: 0
+        state:
+          running:
+            startedAt: {{ $now | Quote }}
+      {{ end }}
+      hostIP: 10.0.0.1
+      podIP: 10.0.0.{{ AddInt 1 (index (Split (or .metadata.name "pod-0") "-") (SubInt (len (Split (or .metadata.name "pod-0") "-")) 1)) }}
+      phase: Running
+      startTime: {{ $now | Quote }}
+---
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: pod-delete
+spec:
+  resourceRef:
+    apiGroup: v1
+    kind: Pod
+  selector:
+    matchExpressions:
+    - key: '.metadata.deletionTimestamp'
+      operator: Exists
+  next:
+    delete: true
+    finalizers:
+      empty: true

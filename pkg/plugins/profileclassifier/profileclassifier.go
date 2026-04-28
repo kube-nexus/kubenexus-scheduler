@@ -446,12 +446,12 @@ func getGPURequest(pod *v1.Pod) int64 {
 }
 
 // GetProfile retrieves the SchedulingProfile from CycleState
-func GetProfile(state *framework.CycleState) (*SchedulingProfile, error) {
+func GetProfile(state framework.CycleState) (*SchedulingProfile, error) {
 	if state == nil {
 		return nil, fmt.Errorf("cycleState is nil")
 	}
 
-	c, err := (*state).Read(stateKey)
+	c, err := state.Read(stateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %q from cycleState: %w", stateKey, err)
 	}

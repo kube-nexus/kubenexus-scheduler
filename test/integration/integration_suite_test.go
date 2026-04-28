@@ -15,63 +15,9 @@ limitations under the License.
 */
 
 // Package integration contains integration tests for KubeNexus scheduler plugins.
-// These tests verify the interaction between multiple plugins and the scheduler framework.
+// These tests verify multi-plugin pipelines by creating real plugin instances through
+// their New() constructors, backed by a framework.Handle from test/util/fake.go.
+// No envtest or Kind cluster required.
 //
-// Requirements:
-// - Install controller-runtime test environment: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
-// - These tests require a test Kubernetes API server
-//
-// Run with: make test-integration
+// Run with: go test ./test/integration/ -v
 package integration
-
-import (
-	"testing"
-)
-
-// TestIntegrationSuite is a placeholder for integration tests
-// TODO: Implement proper integration tests using envtest or kind
-func TestIntegrationSuite(t *testing.T) {
-	t.Log("Integration test suite - requires test Kubernetes API server")
-	t.Log("Run 'make test-integration' to execute full integration tests")
-
-	// Integration tests to implement:
-	tests := []string{
-		"Gang scheduling with 3+ pods",
-		"Gang scheduling timeout handling",
-		"Resource reservation for driver pods",
-		"Workload classification with gang scheduling",
-		"NUMA topology scoring",
-		"PreemptionPlugin interaction",
-		"Multi-plugin pipeline (Classification -> Topology -> Gang -> Reservation)",
-	}
-
-	for _, testName := range tests {
-		t.Run(testName, func(t *testing.T) {
-			t.Skip("Integration test not yet implemented - requires envtest setup")
-		})
-	}
-}
-
-// TestGangSchedulingEndToEnd tests gang scheduling from pod creation to scheduling decision
-func TestGangSchedulingEndToEnd(t *testing.T) {
-	t.Skip("Requires envtest - see test/integration/README.md for setup")
-
-	// This test should:
-	// 1. Create a fake K8s API server
-	// 2. Deploy KubeNexus scheduler
-	// 3. Create a gang of 4 pods
-	// 4. Verify all 4 pods schedule together
-	// 5. Verify timeout handling if only 3 pods arrive
-}
-
-// TestResourceReservationIntegration tests resource reservation with real API calls
-func TestResourceReservationIntegration(t *testing.T) {
-	t.Skip("Requires envtest - see test/integration/README.md for setup")
-
-	// This test should:
-	// 1. Create driver pod for Spark job
-	// 2. Verify ResourceReservation CRD is created
-	// 3. Create executor pods
-	// 4. Verify executors respect the reservation
-	// 5. Verify cleanup after job completion
-}

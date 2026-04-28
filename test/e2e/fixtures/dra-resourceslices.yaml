@@ -1,0 +1,165 @@
+# DRA ResourceSlice objects for fake GPU nodes.
+# These provide device-level GPU information that the scheduler's
+# DRA-aware plugins can read for topology-aware placement decisions.
+#
+# The kube-scheduler reads ResourceSlices directly from the API server.
+# No running DRA driver is needed for scheduling decisions.
+# Only kubelet NodePrepareResources needs a driver (irrelevant with KWOK).
+---
+# DeviceClass for NVIDIA GPUs
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: gpu.nvidia.com
+spec:
+  selectors:
+  - cel:
+      expression: "device.driver == \"gpu.nvidia.com\""
+---
+# gpu-node-01: 8x H100, NVLink clique-0
+apiVersion: resource.k8s.io/v1
+kind: ResourceSlice
+metadata:
+  name: gpu-node-01-gpus
+spec:
+  driver: gpu.nvidia.com
+  nodeName: gpu-node-01
+  pool:
+    name: gpu-node-01
+    generation: 0
+    resourceSliceCount: 1
+  devices:
+  - name: gpu-0
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-1
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-2
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-3
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-4
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-5
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-6
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-7
+    attributes:
+      gpu.nvidia.com/model: {string: "H100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/nvlinkDomain: {string: "clique-0"}
+      gpu.nvidia.com/cudaComputeCapability: {version: "9.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+---
+# gpu-node-05: 4x A100, InfiniBand (no NVLink clique)
+apiVersion: resource.k8s.io/v1
+kind: ResourceSlice
+metadata:
+  name: gpu-node-05-gpus
+spec:
+  driver: gpu.nvidia.com
+  nodeName: gpu-node-05
+  pool:
+    name: gpu-node-05
+    generation: 0
+    resourceSliceCount: 1
+  devices:
+  - name: gpu-0
+    attributes:
+      gpu.nvidia.com/model: {string: "A100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/cudaComputeCapability: {version: "8.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-1
+    attributes:
+      gpu.nvidia.com/model: {string: "A100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/cudaComputeCapability: {version: "8.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-2
+    attributes:
+      gpu.nvidia.com/model: {string: "A100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/cudaComputeCapability: {version: "8.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+  - name: gpu-3
+    attributes:
+      gpu.nvidia.com/model: {string: "A100"}
+      gpu.nvidia.com/memory: {int: 81920}
+      gpu.nvidia.com/cudaComputeCapability: {version: "8.0.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "80Gi"}
+---
+# gpu-node-07: 2x T4, Ethernet (economy tier)
+apiVersion: resource.k8s.io/v1
+kind: ResourceSlice
+metadata:
+  name: gpu-node-07-gpus
+spec:
+  driver: gpu.nvidia.com
+  nodeName: gpu-node-07
+  pool:
+    name: gpu-node-07
+    generation: 0
+    resourceSliceCount: 1
+  devices:
+  - name: gpu-0
+    attributes:
+      gpu.nvidia.com/model: {string: "T4"}
+      gpu.nvidia.com/memory: {int: 16384}
+      gpu.nvidia.com/cudaComputeCapability: {version: "7.5.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "16Gi"}
+  - name: gpu-1
+    attributes:
+      gpu.nvidia.com/model: {string: "T4"}
+      gpu.nvidia.com/memory: {int: 16384}
+      gpu.nvidia.com/cudaComputeCapability: {version: "7.5.0"}
+    capacity:
+      gpu.nvidia.com/vram: {value: "16Gi"}

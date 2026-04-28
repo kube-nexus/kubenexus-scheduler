@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
@@ -216,7 +217,7 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 
 // getPodTenantTier gets the pod's tenant tier from ProfileClassifier or defaults to unknown
 func (rf *ResourceFragmentationScore) getPodTenantTier(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.TenantTier)
 	}
@@ -261,7 +262,7 @@ func (rf *ResourceFragmentationScore) detectGPUIsland(nodeInfo framework.NodeInf
 	allocatedGPUs := int64(0)
 	// podLister might be nil in test scenarios
 	if rf.podLister != nil {
-		allPods, err := rf.podLister.List(nil)
+		allPods, err := rf.podLister.List(labels.Everything())
 		if err == nil {
 			for _, pod := range allPods {
 				if pod.Spec.NodeName == node.Name {
@@ -335,7 +336,7 @@ func (rf *ResourceFragmentationScore) scoreCPUMemoryFragmentation(pod *v1.Pod, n
 
 	// podLister might be nil in test scenarios
 	if rf.podLister != nil {
-		allPods, err := rf.podLister.List(nil)
+		allPods, err := rf.podLister.List(labels.Everything())
 		if err == nil {
 			for _, p := range allPods {
 				if p.Spec.NodeName == node.Name {
@@ -367,7 +368,7 @@ func getGPURequest(pod *v1.Pod) int {
 
 // getPodWorkloadType gets the workload type from ProfileClassifier
 func (rf *ResourceFragmentationScore) getPodWorkloadType(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.WorkloadType)
 	}

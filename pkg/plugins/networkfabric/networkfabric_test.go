@@ -62,6 +62,10 @@ func TestConstants(t *testing.T) {
 		{"PenaltyCrossFabric", PenaltyCrossFabric, 30},
 		{"PenaltyCrossRack", PenaltyCrossRack, 20},
 		{"PenaltyCrossAZ", PenaltyCrossAZ, 10},
+		{"LabelGPUClique", LabelGPUClique, "nvidia.com/gpu.clique"},
+		{"AnnotationRequireClique", AnnotationRequireClique, "scheduling.kubenexus.io/require-clique"},
+		{"BonusSameClique", BonusSameClique, 40},
+		{"PenaltyCrossClique", PenaltyCrossClique, 40},
 	}
 
 	for _, tt := range tests {
@@ -273,10 +277,19 @@ func TestCalculateLocalityScore(t *testing.T) {
 			},
 		},
 	}
+	nodeCliqueOnly := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-clique",
+			Labels: map[string]string{
+				LabelGPUClique: "clique-0",
+			},
+		},
+	}
 
 	tests := []struct {
 		name              string
 		gangPods          []*v1.Pod
+		candidateClique   string
 		candidateFabricID string
 		candidateRackID   string
 		candidateAZ       string
@@ -285,10 +298,49 @@ func TestCalculateLocalityScore(t *testing.T) {
 		{
 			name:              "No existing gang members",
 			gangPods:          []*v1.Pod{},
+			candidateClique:   "",
 			candidateFabricID: "fabric-01",
 			candidateRackID:   "rack-a",
 			candidateAZ:       "us-west-1a",
 			wantScore:         0,
+		},
+		{
+			name: "Same NVLink clique - bonus",
+			gangPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+					},
+					Spec: v1.PodSpec{
+						NodeName: "node-clique",
+					},
+				},
+			},
+			candidateClique:   "clique-0",
+			candidateFabricID: "",
+			candidateRackID:   "",
+			candidateAZ:       "",
+			wantScore:         BonusSameClique,
+		},
+		{
+			name: "Cross NVLink clique - penalty",
+			gangPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1",
+						Namespace: "default",
+					},
+					Spec: v1.PodSpec{
+						NodeName: "node-clique",
+					},
+				},
+			},
+			candidateClique:   "clique-1",
+			candidateFabricID: "",
+			candidateRackID:   "",
+			candidateAZ:       "",
+			wantScore:         -PenaltyCrossClique,
 		},
 		{
 			name: "Same fabric domain - bonus",
@@ -303,6 +355,7 @@ func TestCalculateLocalityScore(t *testing.T) {
 					},
 				},
 			},
+			candidateClique:   "",
 			candidateFabricID: "fabric-01",
 			candidateRackID:   "",
 			candidateAZ:       "",
@@ -321,6 +374,7 @@ func TestCalculateLocalityScore(t *testing.T) {
 					},
 				},
 			},
+			candidateClique:   "",
 			candidateFabricID: "",
 			candidateRackID:   "rack-a",
 			candidateAZ:       "",
@@ -339,6 +393,7 @@ func TestCalculateLocalityScore(t *testing.T) {
 					},
 				},
 			},
+			candidateClique:   "",
 			candidateFabricID: "",
 			candidateRackID:   "",
 			candidateAZ:       "us-west-1a",
@@ -354,9 +409,10 @@ func TestCalculateLocalityScore(t *testing.T) {
 					"node-fabric": nodeFabricOnly,
 					"node-rack":   nodeRackOnly,
 					"node-az":     nodeAZOnly,
+					"node-clique": nodeCliqueOnly,
 				},
 			}
-			got := calculateLocalityScore(tt.gangPods, tt.candidateFabricID, tt.candidateRackID, tt.candidateAZ, fakeNodeLister)
+			got := calculateLocalityScore(tt.gangPods, tt.candidateClique, tt.candidateFabricID, tt.candidateRackID, tt.candidateAZ, fakeNodeLister)
 			if got != tt.wantScore {
 				t.Errorf("calculateLocalityScore() = %d, want %d", got, tt.wantScore)
 			}
@@ -401,6 +457,50 @@ func TestFabricTypeStrings(t *testing.T) {
 		t.Run(string(tt.fabric), func(t *testing.T) {
 			if string(tt.fabric) != tt.want {
 				t.Errorf("FabricType string = %v, want %v", tt.fabric, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequiresCliqueFilter(t *testing.T) {
+	plugin := &NetworkFabricScore{}
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        bool
+	}{
+		{
+			name:        "require-clique annotation",
+			annotations: map[string]string{AnnotationRequireClique: "true"},
+			want:        true,
+		},
+		{
+			name:        "strict co-locate annotation",
+			annotations: map[string]string{AnnotationCoLocate: "strict"},
+			want:        true,
+		},
+		{
+			name:        "preferred co-locate - no hard filter",
+			annotations: map[string]string{AnnotationCoLocate: "preferred"},
+			want:        false,
+		},
+		{
+			name:        "no annotations - no hard filter",
+			annotations: nil,
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: tt.annotations,
+				},
+			}
+			if got := plugin.requiresCliqueFilter(pod); got != tt.want {
+				t.Errorf("requiresCliqueFilter() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -51,6 +51,9 @@ type Reservation struct {
 
 	// Memory is the amount of memory reserved
 	Memory resource.Quantity `json:"memory"`
+
+	// GPU is the number of GPUs reserved (nvidia.com/gpu)
+	GPU resource.Quantity `json:"gpu,omitempty"`
 }
 
 // ResourceReservationStatus defines the observed state of ResourceReservation

@@ -112,7 +112,7 @@ func (t *TopologySpreadScorePlugin) Score(ctx context.Context, state framework.C
 //   - Returns normalized string: "training", "inference", "batch", "service", "unknown"
 func (t *TopologySpreadScorePlugin) getWorkloadTypeFromProfile(state framework.CycleState, pod *v1.Pod) string {
 	// Try ProfileClassifier first
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return strings.ToLower(string(profile.WorkloadType))
 	}

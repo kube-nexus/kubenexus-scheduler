@@ -21,6 +21,7 @@ import (
 	"context"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
@@ -146,7 +147,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	// Get currently requested resources on the node
 	// Sum up all pod requests on this node
-	allPods, err := b.podLister.List(nil)
+	allPods, err := b.podLister.List(labels.Everything())
 	if err != nil {
 		klog.V(4).InfoS("BackfillScoring: failed to list pods, using neutral score", "err", err)
 		// On error, return neutral score
@@ -216,6 +217,12 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 	// Silver/Bronze backfill should avoid Gold-reserved resources
 	tenantAdjustment := b.calculateTenantAdjustment(tenantTier, node)
 	utilization += tenantAdjustment
+	if utilization < 0 {
+		utilization = 0
+	}
+	if utilization > 100 {
+		utilization = 100
+	}
 
 	if isBackfillPod {
 		// BACKFILL POD STRATEGY: Prefer nodes with MORE idle resources
@@ -269,7 +276,7 @@ func (b *BackfillScoring) ScoreExtensions() framework.ScoreExtensions {
 //   - Maintains backward compatibility with existing deployments
 func (b *BackfillScoring) getPreemptibilityFromProfile(state framework.CycleState, pod *v1.Pod) bool {
 	// Try ProfileClassifier first
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		klog.V(4).InfoS("BackfillScoring: pod preemptibility from ProfileClassifier", "namespace", pod.Namespace, "pod", pod.Name, "isPreemptible", profile.IsPreemptible)
 		return profile.IsPreemptible
@@ -330,7 +337,7 @@ func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 
 // getTenantTierFromProfile gets pod's tenant tier from ProfileClassifier
 func (b *BackfillScoring) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.TenantTier)
 	}
