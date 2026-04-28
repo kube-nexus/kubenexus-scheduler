@@ -59,13 +59,14 @@ test-webhook:
 
 .PHONY: test-integration
 test-integration:
-	@echo "Integration tests not yet implemented"
-	@echo "Skipping integration tests..."
+	@echo "Running integration tests..."
+	$(BUILDENVVAR) go test -v -timeout 120s ./test/integration/...
 
 .PHONY: test-e2e
 test-e2e:
-	@echo "E2E tests not yet implemented"
-	@echo "Skipping E2E tests..."
+	@echo "E2E tests require a Kind cluster with KWOK and fake GPU nodes."
+	@echo "Run hack/e2e-setup.sh first, then: go test -v -timeout 300s ./test/e2e/"
+	@echo "Skipping E2E tests in CI (no cluster available)..."
 
 .PHONY: test-coverage
 test-coverage:
