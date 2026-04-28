@@ -1,32 +1,72 @@
 # End-to-End Tests
 
-This directory contains end-to-end tests for KubeNexus Scheduler.
+E2E tests for KubeNexus Scheduler using Kind + KWOK fake GPU nodes.
+
+## Quick Start
+
+```bash
+# Setup cluster with fake GPU nodes + deploy scheduler
+make e2e-setup      # or: ./hack/e2e-setup.sh
+
+# Run e2e tests
+make e2e-test       # or: go test ./test/e2e/ -v
+
+# Teardown
+make e2e-teardown   # or: ./hack/e2e-setup.sh teardown
+
+# Full pipeline (setup + test)
+make e2e
+```
+
+## Architecture
+
+```
+Kind cluster (control-plane only)
+├── KWOK controller (manages fake node heartbeats + pod lifecycle)
+├── KubeNexus Scheduler (deployed as pod)
+├── 8 KWOK fake GPU nodes:
+│   ├── Rack A (NVSwitch, H100 Gold, clique-0 + clique-1): gpu-node-01..04
+│   ├── Rack B (InfiniBand, A100 Silver): gpu-node-05..06
+│   └── Rack C (Ethernet, T4 Bronze, us-east-1b): gpu-node-07..08
+└── DRA ResourceSlice objects (device-level GPU attributes)
+```
 
 ## Directory Structure
 
 ```
 test/e2e/
-├── e2e_test.go              # Go-based E2E tests
-├── fixtures/                # YAML test fixtures
-│   ├── gang-label-test.yaml          # Label-based gang scheduling test
-│   ├── workload-api-test.yaml        # Workload API test (requires Kueue)
-│   └── kind-config.yaml              # Kind cluster configuration
-└── scripts/                 # Test scripts
-    ├── run-gang-label-test.sh        # Run gang scheduling test
-    └── run-workload-api-test.sh      # Run Workload API test
+├── e2e_test.go                    # Go e2e tests (8 tests)
+├── README.md
+├── fixtures/
+│   ├── kind-e2e.yaml              # Kind config (control-plane only, DRA enabled)
+│   ├── kwok-gpu-nodes.yaml        # 8 fake GPU nodes with topology labels
+│   ├── kwok-stages.yaml           # KWOK stage configs for pod lifecycle
+│   ├── dra-resourceslices.yaml    # DRA ResourceSlice objects
+│   ├── dra-gpu-test.yaml          # DRA DeviceClass + ResourceClaimTemplates
+│   └── ...
+└── scripts/
+    └── ...
 ```
 
-## Running Tests
+## Tests
 
-### Prerequisites
+| Test | What it verifies |
+|------|-----------------|
+| `TestTrainingPodGetsGoldGPU` | Training pods land on Gold/Silver tier, not Bronze |
+| `TestServicePodsSpread` | Service pods spread across multiple nodes |
+| `TestGangCliqueCoLocation` | Gang pods with require-clique stay in same NVLink partition |
+| `TestTenantHardwareMatching` | Gold tenant → H100, Bronze tenant → T4 |
+| `TestNetworkFabricPreference` | Training pods prefer NVSwitch/InfiniBand over Ethernet |
+| `TestTopologySpreadAcrossAZs` | Service pods distribute across availability zones |
+| `TestDRAResourceSlicesExist` | DRA API is available and scheduler has RBAC |
+| `TestUnschedulableExcessGPU` | Pod requesting 16 GPUs stays unschedulable |
 
-- Kind cluster running (K8s 1.35+ recommended)
-- KubeNexus Scheduler deployed
-- kubectl configured
+## Prerequisites
 
-### Label-Based Gang Scheduling Test (Recommended)
-
-This test uses label-based gang scheduling which works out of the box:
+- Docker running
+- `kind` v0.31+
+- `kubectl`
+- `helm` v3+
 
 ```bash
 ./test/e2e/scripts/run-gang-label-test.sh

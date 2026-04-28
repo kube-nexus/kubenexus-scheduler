@@ -21,6 +21,7 @@ import (
 	"context"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
@@ -146,7 +147,7 @@ func (b *BackfillScoring) Score(ctx context.Context, state framework.CycleState,
 
 	// Get currently requested resources on the node
 	// Sum up all pod requests on this node
-	allPods, err := b.podLister.List(nil)
+	allPods, err := b.podLister.List(labels.Everything())
 	if err != nil {
 		klog.V(4).InfoS("BackfillScoring: failed to list pods, using neutral score", "err", err)
 		// On error, return neutral score

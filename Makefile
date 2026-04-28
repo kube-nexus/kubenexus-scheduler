@@ -142,6 +142,24 @@ kind-cleanup:
 	@echo "Cleaning up Kind cluster..."
 	kind delete cluster --name kubenexus-test
 
+.PHONY: e2e-setup
+e2e-setup:
+	@echo "Setting up e2e cluster with KWOK fake GPU nodes..."
+	./hack/e2e-setup.sh
+
+.PHONY: e2e-test
+e2e-test:
+	@echo "Running e2e tests..."
+	go test ./test/e2e/ -v -count=1
+
+.PHONY: e2e-teardown
+e2e-teardown:
+	@echo "Tearing down e2e cluster..."
+	./hack/e2e-setup.sh teardown
+
+.PHONY: e2e
+e2e: e2e-setup e2e-test
+
 .PHONY: kind-logs
 kind-logs:
 	@echo "Showing scheduler logs..."

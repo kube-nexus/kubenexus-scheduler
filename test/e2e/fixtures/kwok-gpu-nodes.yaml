@@ -1,0 +1,329 @@
+# KWOK fake GPU nodes for e2e testing.
+# Simulates a 2-rack GPU cluster with NVLink partitions.
+#
+# Topology:
+#   AZ: us-east-1a
+#   ├── Rack A (fabric-01, NVSwitch)
+#   │   ├── gpu-node-01 (clique-0, 8x H100, Gold)
+#   │   ├── gpu-node-02 (clique-0, 8x H100, Gold)
+#   │   ├── gpu-node-03 (clique-1, 8x H100, Gold)
+#   │   └── gpu-node-04 (clique-1, 8x H100, Gold)
+#   └── Rack B (fabric-02, InfiniBand)
+#       ├── gpu-node-05 (4x A100, Silver)
+#       └── gpu-node-06 (4x A100, Silver)
+#   AZ: us-east-1b
+#   └── Rack C (fabric-03, Ethernet)
+#       ├── gpu-node-07 (2x T4, Bronze)
+#       └── gpu-node-08 (2x T4, Bronze)
+---
+# Rack A, Clique 0 — NVSwitch, H100, Gold tier
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-01
+  labels:
+    type: kwok
+    nvidia.com/gpu.clique: "clique-0"
+    network.kubenexus.io/fabric-type: "nvswitch"
+    network.kubenexus.io/fabric-id: "fabric-01"
+    network.kubenexus.io/rack-id: "rack-A"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "H100"
+    hardware.kubenexus.io/gpu-tier: "gold"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  capacity:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-02
+  labels:
+    type: kwok
+    nvidia.com/gpu.clique: "clique-0"
+    network.kubenexus.io/fabric-type: "nvswitch"
+    network.kubenexus.io/fabric-id: "fabric-01"
+    network.kubenexus.io/rack-id: "rack-A"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "H100"
+    hardware.kubenexus.io/gpu-tier: "gold"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  capacity:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+# Rack A, Clique 1 — NVSwitch, H100, Gold tier
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-03
+  labels:
+    type: kwok
+    nvidia.com/gpu.clique: "clique-1"
+    network.kubenexus.io/fabric-type: "nvswitch"
+    network.kubenexus.io/fabric-id: "fabric-01"
+    network.kubenexus.io/rack-id: "rack-A"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "H100"
+    hardware.kubenexus.io/gpu-tier: "gold"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  capacity:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-04
+  labels:
+    type: kwok
+    nvidia.com/gpu.clique: "clique-1"
+    network.kubenexus.io/fabric-type: "nvswitch"
+    network.kubenexus.io/fabric-id: "fabric-01"
+    network.kubenexus.io/rack-id: "rack-A"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "H100"
+    hardware.kubenexus.io/gpu-tier: "gold"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  capacity:
+    cpu: "128"
+    memory: "1Ti"
+    pods: "250"
+    nvidia.com/gpu: "8"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+# Rack B — InfiniBand, A100, Silver tier
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-05
+  labels:
+    type: kwok
+    network.kubenexus.io/fabric-type: "infiniband"
+    network.kubenexus.io/fabric-id: "fabric-02"
+    network.kubenexus.io/rack-id: "rack-B"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "A100"
+    hardware.kubenexus.io/gpu-tier: "silver"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "64"
+    memory: "512Gi"
+    pods: "110"
+    nvidia.com/gpu: "4"
+  capacity:
+    cpu: "64"
+    memory: "512Gi"
+    pods: "110"
+    nvidia.com/gpu: "4"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-06
+  labels:
+    type: kwok
+    network.kubenexus.io/fabric-type: "infiniband"
+    network.kubenexus.io/fabric-id: "fabric-02"
+    network.kubenexus.io/rack-id: "rack-B"
+    network.kubenexus.io/az: "us-east-1a"
+    hardware.kubenexus.io/gpu-model: "A100"
+    hardware.kubenexus.io/gpu-tier: "silver"
+    topology.kubernetes.io/zone: "us-east-1a"
+    topology.kubenexus.io/numa-nodes: "2"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "64"
+    memory: "512Gi"
+    pods: "110"
+    nvidia.com/gpu: "4"
+  capacity:
+    cpu: "64"
+    memory: "512Gi"
+    pods: "110"
+    nvidia.com/gpu: "4"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+# Rack C (different AZ) — Ethernet, T4, Bronze tier
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-07
+  labels:
+    type: kwok
+    network.kubenexus.io/fabric-type: "ethernet"
+    network.kubenexus.io/fabric-id: "fabric-03"
+    network.kubenexus.io/rack-id: "rack-C"
+    network.kubenexus.io/az: "us-east-1b"
+    hardware.kubenexus.io/gpu-model: "T4"
+    hardware.kubenexus.io/gpu-tier: "bronze"
+    topology.kubernetes.io/zone: "us-east-1b"
+    topology.kubenexus.io/numa-nodes: "1"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "32"
+    memory: "128Gi"
+    pods: "110"
+    nvidia.com/gpu: "2"
+  capacity:
+    cpu: "32"
+    memory: "128Gi"
+    pods: "110"
+    nvidia.com/gpu: "2"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: gpu-node-08
+  labels:
+    type: kwok
+    network.kubenexus.io/fabric-type: "ethernet"
+    network.kubenexus.io/fabric-id: "fabric-03"
+    network.kubenexus.io/rack-id: "rack-C"
+    network.kubenexus.io/az: "us-east-1b"
+    hardware.kubenexus.io/gpu-model: "T4"
+    hardware.kubenexus.io/gpu-tier: "bronze"
+    topology.kubernetes.io/zone: "us-east-1b"
+    topology.kubenexus.io/numa-nodes: "1"
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: "fake"
+spec:
+  taints: []
+status:
+  allocatable:
+    cpu: "32"
+    memory: "128Gi"
+    pods: "110"
+    nvidia.com/gpu: "2"
+  capacity:
+    cpu: "32"
+    memory: "128Gi"
+    pods: "110"
+    nvidia.com/gpu: "2"
+  conditions:
+  - type: Ready
+    status: "True"
+    lastHeartbeatTime: "2026-01-01T00:00:00Z"
+    lastTransitionTime: "2026-01-01T00:00:00Z"
+    reason: KubeletReady
+    message: "kwok fake node"
