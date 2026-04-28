@@ -223,6 +223,7 @@ func (rr *ResourceReservation) Filter(ctx context.Context, state framework.Cycle
 	// Calculate reserved capacity
 	reservedCPU := resource.Quantity{}
 	reservedMemory := resource.Quantity{}
+	reservedGPU := resource.Quantity{}
 
 	podGroupName, _, _ := utils.GetPodGroupLabels(pod)
 
@@ -236,6 +237,7 @@ func (rr *ResourceReservation) Filter(ctx context.Context, state framework.Cycle
 			if reservation.Node == "" || reservation.Node == nodeName {
 				reservedCPU.Add(reservation.CPU)
 				reservedMemory.Add(reservation.Memory)
+				reservedGPU.Add(reservation.GPU)
 			}
 		}
 	}
@@ -247,9 +249,10 @@ func (rr *ResourceReservation) Filter(ctx context.Context, state framework.Cycle
 
 	// Simple check: if we have significant reservations, log them
 	// The actual capacity check is delegated to NodeResourcesFit plugin
-	if reservedCPU.MilliValue() > 0 || reservedMemory.Value() > 0 {
+	if reservedCPU.MilliValue() > 0 || reservedMemory.Value() > 0 || reservedGPU.Value() > 0 {
 		klog.V(4).InfoS("Filter: node has resources reserved by other gangs",
-			"node", nodeName, "reservedCPUMillis", reservedCPU.MilliValue(), "reservedMemoryBytes", reservedMemory.Value())
+			"node", nodeName, "reservedCPUMillis", reservedCPU.MilliValue(),
+			"reservedMemoryBytes", reservedMemory.Value(), "reservedGPUs", reservedGPU.Value())
 	}
 
 	return framework.NewStatus(framework.Success, "")
@@ -364,8 +367,7 @@ func (rr *ResourceReservation) createGangReservations(ctx context.Context, pod *
 			Node:   "", // Not assigned yet - filter will check all nodes
 			CPU:    cpuPerPod,
 			Memory: memPerPod,
-			// Note: GPU capacity would need to be tracked separately or in extended Reservation type
-			// For now, we track CPU and Memory which are the primary constraints
+			GPU:    gpuPerPod,
 		}
 	}
 

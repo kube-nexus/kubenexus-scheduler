@@ -37,18 +37,16 @@ These three plugins are THE core differentiation from native K8s and competitors
    - Fully functional Score plugin
    - Uses ProfileClassifier tenant tier classification
 
-3. **VRAMScheduler** - \u2705 **IMPLEMENTED** | 🚧 **NEEDS REGISTRATION**
+3. **VRAMScheduler** - ✅ **IMPLEMENTED & REGISTERED**
    - VRAM-aware bin-packing (model size vs GPU memory)
    - Tenant-tier-specific utilization thresholds
-   - Filter + Score plugin fully coded
-   - **TODO**: Add to cmd/main.go imports and WithPlugin registration
+   - Filter + Score plugin with DRA ResourceSlice integration
+   - Graceful degradation: DRA → NFD → manual labels
 
 **Why These Three Matter:**
 - No upstream K8s plugin does automatic tenant→hardware economic matching
 - No competitor (Volcano/Yunikorn/Kueue) has VRAM-aware bin-packing with tenant policies
 - ProfileClassifier enables automatic workload adaptation that requires manual configuration elsewhere
-
-**Once VRAMScheduler is registered, these three form the unbeatable value proposition.**
 
 ---
 
@@ -316,29 +314,32 @@ These three plugins are THE core differentiation from native K8s and competitors
 
 ---
 
-### **10. NetworkFabric** ⭐⭐⭐ (WHERE: Fabric Topology)
+### **10. NetworkFabric** ⭐⭐⭐ (WHERE: Fabric Topology + NVLink Clique)
 
-**Role**: Network fabric topology-aware scheduling for distributed training
+**Role**: Network fabric topology-aware scheduling and NVLink partition enforcement for distributed training
 
 **What It Does**:
+- **Filter**: Hard-rejects nodes in wrong NVLink clique for gang pods with `require-clique: true` or `co-locate: strict` (cross-partition = 10-50x bandwidth drop on GB200 NVL72)
+- **Score**: Multi-level topology co-location: NVLink clique (+40) > fabric domain (+30) > rack (+20) > AZ (+10)
 - Detects fabric tiers: NVSwitch (900GB/s per GPU) > InfiniBand (200GB/s) > RoCE (25GB/s)
-- Co-locates gang members in same fabric domain
+- **DRA-native**: Clique discovery with graceful degradation (node label → DRA ResourceSlice `nvlink-domain` attribute)
 - Workload-aware: Training/batch get fabric boost, service/inference neutral
-- Prevents cross-rack/cross-AZ gang placement
 
 **Heterogeneous Workload Story**:
 - **Problem**: Distributed training performance depends on network bandwidth
+  - Same NVLink partition (clique): 1.8 TB/s chip-to-chip (GB200 NVL72)
   - Same-rack NVSwitch: 300-600GB/s aggregate fabric bandwidth
   - Cross-rack InfiniBand: 100-200GB/s
   - Cross-AZ: 10-25GB/s
-  - Result: 3-10x slowdown in all-reduce operations
-  - Note: 900GB/s is per-GPU NVSwitch link, aggregate depends on topology
-- **Solution**: Co-locate gang members on high-bandwidth fabric domains
-- **Value**: 3-10x training speedup for communication-intensive workloads
+  - Result: 3-50x slowdown for cross-boundary collective operations
+- **Solution**: Filter to same NVLink partition, then score for tightest topology co-location
+- **Value**: Prevents 10-50x bandwidth degradation from cross-clique placement; 3-10x training speedup for cross-rack avoidance
 
-**Upstream Comparison**: No equivalent - K8s has no network fabric awareness
+**ComputeDomain Integration**: Reads `nvidia.com/gpu.clique` labels set by NVIDIA DRA driver for NVLink partition membership. Falls back to DRA ResourceSlice `nvlink-domain` device attribute when labels unavailable.
 
-**Status**: ✅ **KEEP** - Critical for distributed GPU training
+**Upstream Comparison**: No equivalent - K8s has no network fabric or NVLink partition awareness
+
+**Status**: ✅ **KEEP** - Critical for distributed GPU training and GB200 NVL72 environments
 
 ---
 

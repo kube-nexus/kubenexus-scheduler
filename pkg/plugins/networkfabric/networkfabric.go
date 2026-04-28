@@ -19,15 +19,25 @@ limitations under the License.
 // THE PROBLEM:
 // Distributed training and gang-scheduled workloads require high-bandwidth, low-latency
 // communication between pods. When pods are scattered across different network domains
-// (racks, pods, availability zones), network performance degrades significantly:
+// (NVLink partitions, racks, availability zones), network performance degrades significantly:
+//   - Same NVLink partition (clique): 1.8 TB/s chip-to-chip (GB200 NVL72)
 //   - Same rack (NVSwitch): ~300-600 GB/s GPU-GPU bandwidth
 //   - Cross-rack (InfiniBand/RoCE): ~100-200 GB/s bandwidth
 //   - Cross-AZ (backbone): ~10-25 GB/s bandwidth
-//   - Performance impact: 3-10x slowdown in collective operations (all-reduce)
+//   - Performance impact: 3-50x slowdown for cross-boundary collective operations
 //
 // THE SOLUTION:
-// This plugin scores nodes based on network fabric topology to place gang members
-// close together on the network, maximizing bandwidth and minimizing latency.
+// This plugin provides both hard filtering and soft scoring across all topology levels:
+//   - Filter: For gang pods with require-clique or strict co-location, hard-reject nodes
+//     in the wrong NVLink partition (cross-partition = 10-50x bandwidth drop)
+//   - Score: Multi-level locality scoring that packs gang members into the tightest
+//     topology domain: NVLink clique (+40) > fabric domain (+30) > rack (+20) > AZ (+10)
+//
+// TOPOLOGY HIERARCHY (tightest -> broadest):
+//  1. NVLink Clique: nvidia.com/gpu.clique (NVIDIA DRA driver / ComputeDomain)
+//  2. Fabric Domain: network.kubenexus.io/fabric-id (NVSwitch/IB/RoCE domain)
+//  3. Rack: network.kubenexus.io/rack-id
+//  4. Availability Zone: network.kubenexus.io/az
 //
 // NETWORK FABRIC TIERS (from best to worst):
 //  1. NVSwitch Fabric: GPU-to-GPU direct, 900 GB/s, <1μs latency (DGX SuperPods)
@@ -37,7 +47,7 @@ limitations under the License.
 //  5. Standard Ethernet: 1-10 GbE, 125 MB - 1.25 GB/s, >100μs latency
 //
 // SCORING STRATEGY:
-//   - Co-locate gang members in same network domain when possible
+//   - Co-locate gang members in same NVLink clique and network domain when possible
 //   - Prefer higher-tier fabrics for communication-intensive workloads
 //   - Consider existing pod placement to avoid fragmenting network domains
 //   - Balance with other constraints (GPU availability, NUMA, etc.)
@@ -48,12 +58,14 @@ limitations under the License.
 //	network.kubenexus.io/fabric-id: "<unique-fabric-domain-id>"
 //	network.kubenexus.io/rack-id: "<rack-identifier>"
 //	network.kubenexus.io/az: "<availability-zone>"
+//	nvidia.com/gpu.clique: "<NVLink-partition-id>"  (set by NVIDIA DRA driver)
 //
 // POD ANNOTATIONS (optional overrides):
 //
 //	scheduling.kubenexus.io/network-sensitive: "true|false"  # Boost scoring weight
 //	scheduling.kubenexus.io/min-fabric-tier: "nvswitch|infiniband|roce"  # Minimum required
 //	scheduling.kubenexus.io/co-locate: "strict|preferred|none"  # Gang locality requirement
+//	scheduling.kubenexus.io/require-clique: "true"  # Hard: filter to same NVLink partition
 //
 // EXAMPLE TOPOLOGY:
 //
@@ -75,12 +87,15 @@ package networkfabric
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	resourcev1listers "k8s.io/client-go/listers/resource/v1"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
@@ -88,13 +103,18 @@ import (
 	"github.com/kube-nexus/kubenexus-scheduler/pkg/workload"
 )
 
-// NetworkFabricScore implements network topology-aware scoring for gang scheduling.
+// NetworkFabricScore implements network topology-aware scoring and NVLink
+// partition filtering for gang scheduling. It provides:
+//   - Filter: Hard rejection of nodes in the wrong NVLink clique for gang pods
+//   - Score: Multi-level locality scoring (clique > fabric-id > rack > AZ)
 type NetworkFabricScore struct {
-	handle     framework.Handle
-	podLister  corelisters.PodLister
-	nodeLister corelisters.NodeLister
+	handle              framework.Handle
+	podLister           corelisters.PodLister
+	nodeLister          corelisters.NodeLister
+	resourceSliceLister resourcev1listers.ResourceSliceLister // DRA fallback for clique discovery
 }
 
+var _ framework.FilterPlugin = &NetworkFabricScore{}
 var _ framework.ScorePlugin = &NetworkFabricScore{}
 
 const (
@@ -107,11 +127,17 @@ const (
 	LabelRackID     = "network.kubenexus.io/rack-id"     // Rack identifier
 	LabelAZ         = "network.kubenexus.io/az"          // Availability zone
 
+	// NVIDIA DRA driver labels for NVLink partition (ComputeDomain) awareness.
+	// In GB200 NVL72 racks, GPUs are split into NVLink partitions (cliques).
+	// Gang pods crossing clique boundaries fall back to IB — a 10-50x bandwidth drop.
+	LabelGPUClique = "nvidia.com/gpu.clique" // NVLink partition ID
+
 	// Pod annotations
 	AnnotationNetworkSensitive = "scheduling.kubenexus.io/network-sensitive" // true|false
 	AnnotationMinFabricTier    = "scheduling.kubenexus.io/min-fabric-tier"   // nvswitch|infiniband|roce
 	AnnotationCoLocate         = "scheduling.kubenexus.io/co-locate"         // strict|preferred|none
 	AnnotationPodGroup         = "pod-group.scheduling.sigs.k8s.io/name"     // Gang group name
+	AnnotationRequireClique    = "scheduling.kubenexus.io/require-clique"    // true = hard NVLink clique filter
 
 	// Fabric tier scores (higher is better)
 	ScoreNVSwitch   = 100 // DGX SuperPod with NVSwitch fabric
@@ -122,9 +148,11 @@ const (
 	ScoreUnknown    = 50  // No fabric info, neutral score
 
 	// Locality bonuses (added to base fabric score)
+	BonusSameClique       = 40 // All gang members in same NVLink partition (highest)
 	BonusSameFabricDomain = 30 // All gang members in same fabric domain
 	BonusSameRack         = 20 // All gang members in same rack
 	BonusSameAZ           = 10 // All gang members in same AZ
+	PenaltyCrossClique    = 40 // Gang members split across NVLink partitions
 	PenaltyCrossFabric    = 30 // Gang members split across fabric domains
 	PenaltyCrossRack      = 20 // Gang members split across racks
 	PenaltyCrossAZ        = 10 // Gang members split across AZs
@@ -154,6 +182,133 @@ const (
 // Name returns the name of the plugin.
 func (nf *NetworkFabricScore) Name() string {
 	return Name
+}
+
+// Filter rejects nodes in the wrong NVLink clique for gang pods that require
+// strict clique co-location. This prevents cross-partition placement that would
+// force fallback to InfiniBand/Ethernet with 10-50x bandwidth degradation.
+func (nf *NetworkFabricScore) Filter(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
+	node := nodeInfo.Node()
+	if node == nil {
+		return framework.NewStatus(framework.Error, "node not found")
+	}
+
+	// Only enforce clique filtering for gang pods with strict co-locate or require-clique
+	podGroup := pod.Annotations[AnnotationPodGroup]
+	if podGroup == "" {
+		return framework.NewStatus(framework.Success)
+	}
+
+	if !nf.requiresCliqueFilter(pod) {
+		return framework.NewStatus(framework.Success)
+	}
+
+	candidateClique := nf.getNodeClique(node)
+	if candidateClique == "" {
+		// Node is not in a NVLink environment — check if gang already has clique members
+		existingClique := nf.getGangClique(pod.Namespace, podGroup)
+		if existingClique != "" {
+			return framework.NewStatus(framework.Unschedulable,
+				fmt.Sprintf("node %s has no NVLink partition label, but gang %s requires clique %s",
+					node.Name, podGroup, existingClique))
+		}
+		return framework.NewStatus(framework.Success)
+	}
+
+	// If gang members already scheduled, must match their clique
+	existingClique := nf.getGangClique(pod.Namespace, podGroup)
+	if existingClique == "" {
+		return framework.NewStatus(framework.Success)
+	}
+
+	if candidateClique != existingClique {
+		klog.V(3).InfoS("NetworkFabricScore: filtered node for clique mismatch",
+			"pod", pod.Name, "node", node.Name,
+			"nodeClique", candidateClique, "gangClique", existingClique)
+		return framework.NewStatus(framework.Unschedulable,
+			fmt.Sprintf("node %s is in NVLink partition %s, but gang %s requires partition %s",
+				node.Name, candidateClique, podGroup, existingClique))
+	}
+
+	return framework.NewStatus(framework.Success)
+}
+
+// requiresCliqueFilter checks if the pod needs hard NVLink clique filtering.
+func (nf *NetworkFabricScore) requiresCliqueFilter(pod *v1.Pod) bool {
+	if pod.Annotations[AnnotationRequireClique] == "true" {
+		return true
+	}
+	if strings.ToLower(pod.Annotations[AnnotationCoLocate]) == "strict" {
+		return true
+	}
+	return false
+}
+
+// getGangClique returns the NVLink partition that already-scheduled gang members are placed in.
+func (nf *NetworkFabricScore) getGangClique(namespace, podGroup string) string {
+	gangPods := nf.getGangMemberPods(namespace, podGroup)
+	for _, gangPod := range gangPods {
+		if gangPod.Spec.NodeName == "" {
+			continue
+		}
+		node, err := nf.nodeLister.Get(gangPod.Spec.NodeName)
+		if err != nil {
+			continue
+		}
+		if clique := nf.getNodeClique(node); clique != "" {
+			return clique
+		}
+	}
+	return ""
+}
+
+// getNodeClique returns the NVLink partition ID for a node using graceful degradation:
+//  1. Node label nvidia.com/gpu.clique (set by NVIDIA DRA driver)
+//  2. DRA ResourceSlice nvlink-domain attribute (K8s 1.34+)
+func (nf *NetworkFabricScore) getNodeClique(node *v1.Node) string {
+	// Priority 1: Node label (fastest, set by NVIDIA GPU operator / DRA driver)
+	if clique := node.Labels[LabelGPUClique]; clique != "" {
+		return clique
+	}
+
+	// Priority 2: DRA ResourceSlice attributes (fallback for environments without label)
+	if nf.resourceSliceLister == nil {
+		return ""
+	}
+	allSlices, err := nf.resourceSliceLister.List(labels.Everything())
+	if err != nil {
+		return ""
+	}
+	for _, slice := range allSlices {
+		if slice.Spec.NodeName == nil || *slice.Spec.NodeName != node.Name {
+			continue
+		}
+		if !isGPUDriver(slice.Spec.Driver) {
+			continue
+		}
+		for _, device := range slice.Spec.Devices {
+			if device.Attributes == nil {
+				continue
+			}
+			if domainAttr, exists := device.Attributes["nvlink-domain"]; exists {
+				if domainAttr.IntValue != nil {
+					return strconv.Itoa(int(*domainAttr.IntValue))
+				}
+				if domainAttr.StringValue != nil && *domainAttr.StringValue != "" {
+					return *domainAttr.StringValue
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// isGPUDriver checks if a DRA driver name indicates a GPU driver.
+func isGPUDriver(driver string) bool {
+	driver = strings.ToLower(driver)
+	return strings.Contains(driver, "nvidia") ||
+		strings.Contains(driver, "gpu") ||
+		strings.Contains(driver, "amd")
 }
 
 // ScoreExtensions returns nil (no normalization needed).
@@ -197,7 +352,8 @@ func (nf *NetworkFabricScore) Score(ctx context.Context, state framework.CycleSt
 	}
 
 	// Calculate locality bonuses/penalties based on gang member placement
-	localityScore := calculateLocalityScore(gangPods, fabricID, rackID, az, nf.nodeLister)
+	candidateClique := nf.getNodeClique(node)
+	localityScore := calculateLocalityScore(gangPods, candidateClique, fabricID, rackID, az, nf.nodeLister)
 
 	// Apply workload-aware fabric tier adjustment
 	workloadAdjustment := nf.getWorkloadFabricBonus(state, pod, fabricType)
@@ -295,13 +451,15 @@ func (nf *NetworkFabricScore) getGangMemberPods(namespace, podGroup string) []*v
 	return gangPods
 }
 
-// calculateLocalityScore computes bonus/penalty based on gang member co-location.
-func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRackID, candidateAZ string, nodeLister corelisters.NodeLister) int {
+// calculateLocalityScore computes bonus/penalty based on gang member co-location
+// across all topology levels: NVLink clique > fabric domain > rack > AZ.
+func calculateLocalityScore(gangPods []*v1.Pod, candidateClique, candidateFabricID, candidateRackID, candidateAZ string, nodeLister corelisters.NodeLister) int {
 	if len(gangPods) == 0 {
 		return 0
 	}
 
 	// Get node info for all scheduled gang members
+	cliques := make(map[string]int)       // NVLink clique -> count
 	fabricDomains := make(map[string]int) // fabricID -> count
 	racks := make(map[string]int)         // rackID -> count
 	azs := make(map[string]int)           // az -> count
@@ -319,14 +477,15 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 			continue
 		}
 
-		// Get node from node lister
 		node, err := nodeLister.Get(nodeName)
 		if err != nil {
 			klog.V(5).InfoS("NetworkFabricScore: failed to get node", "node", nodeName, "err", err)
 			continue
 		}
 
-		// Extract topology info from node labels
+		if clique := node.Labels[LabelGPUClique]; clique != "" {
+			cliques[clique]++
+		}
 		if fabricID := node.Labels[LabelFabricID]; fabricID != "" {
 			fabricDomains[fabricID]++
 		}
@@ -338,22 +497,31 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 		}
 	}
 
-	// Calculate locality bonus/penalty
 	localityScore := 0
 
-	// Same fabric domain: strong bonus (best for performance)
+	// NVLink clique: strongest locality signal (GB200 NVL72 partition co-location)
+	if candidateClique != "" {
+		if count := cliques[candidateClique]; count > 0 {
+			localityScore += BonusSameClique
+			klog.V(5).InfoS("NetworkFabricScore: NVLink clique match", "clique", candidateClique, "count", count, "bonus", BonusSameClique)
+		} else if len(cliques) > 0 {
+			localityScore -= PenaltyCrossClique
+			klog.V(5).InfoS("NetworkFabricScore: cross-clique placement", "penalty", PenaltyCrossClique)
+		}
+	}
+
+	// Same fabric domain
 	if candidateFabricID != "" {
 		if count := fabricDomains[candidateFabricID]; count > 0 {
 			localityScore += BonusSameFabricDomain
 			klog.V(5).InfoS("NetworkFabricScore: fabric domain match", "fabricID", candidateFabricID, "count", count, "bonus", BonusSameFabricDomain)
 		} else if len(fabricDomains) > 0 {
-			// Would split gang across fabric domains
 			localityScore -= PenaltyCrossFabric
 			klog.V(5).InfoS("NetworkFabricScore: cross-fabric placement", "penalty", PenaltyCrossFabric)
 		}
 	}
 
-	// Same rack: moderate bonus
+	// Same rack
 	if candidateRackID != "" {
 		if count := racks[candidateRackID]; count > 0 {
 			localityScore += BonusSameRack
@@ -362,7 +530,7 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateFabricID, candidateRack
 		}
 	}
 
-	// Same AZ: small bonus
+	// Same AZ
 	if candidateAZ != "" {
 		if count := azs[candidateAZ]; count > 0 {
 			localityScore += BonusSameAZ
@@ -487,9 +655,17 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
 	nodeLister := handle.SharedInformerFactory().Core().V1().Nodes().Lister()
 
+	// Initialize DRA ResourceSlice lister for clique fallback discovery
+	var resourceSliceLister resourcev1listers.ResourceSliceLister
+	if informerFactory := handle.SharedInformerFactory(); informerFactory != nil {
+		resourceSliceLister = informerFactory.Resource().V1().ResourceSlices().Lister()
+		klog.V(3).InfoS("NetworkFabricScore: DRA ResourceSlice lister initialized for clique discovery")
+	}
+
 	return &NetworkFabricScore{
-		handle:     handle,
-		podLister:  podLister,
-		nodeLister: nodeLister,
+		handle:              handle,
+		podLister:           podLister,
+		nodeLister:          nodeLister,
+		resourceSliceLister: resourceSliceLister,
 	}, nil
 }

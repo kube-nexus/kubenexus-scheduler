@@ -83,15 +83,18 @@ Filter (Feasibility)
   ↓
 ResourceReservation → Prevents fragmentation
 NUMATopology → NUMA constraints
+NetworkFabric → NVLink clique hard-rejection (cross-partition = 10-50x BW drop)
+VRAMScheduler → GPU memory capacity gate
   ↓
 Score (Optimization)
   ↓
 TenantHardware → WHERE (hardware tier)
 WorkloadAware → Placement strategy
-VRAMScheduler → GPU memory fit
-NetworkFabric → Network topology
+VRAMScheduler → GPU memory fit + tenant thresholds
+NetworkFabric → Multi-level topology co-location (clique > fabric > rack > AZ)
 BackfillScoring → Opportunistic placement
 TopologySpread → Multi-zone HA
+ResourceFragmentation → GPU island protection
   ↓
 Reserve/Permit
   ↓
@@ -212,6 +215,8 @@ profiles:
       enabled:
       - name: ResourceReservation
       - name: NUMATopology
+      - name: NetworkFabricScore   # NVLink clique hard-rejection
+      - name: VRAMScheduler
     
     score:
       enabled:
@@ -241,8 +246,8 @@ All plugins use shared informer cache for pod/node listing. Cache sync guarantee
 
 - TenantHardware: O(1) per node (label lookup)
 - WorkloadAware: O(P) per node (P = pods on node)
-- VRAMScheduler: O(1) per node (node labels or DRA)
-- NetworkFabric: O(1) per node (label lookup)
+- VRAMScheduler: O(1) per node (node labels or DRA ResourceSlice)
+- NetworkFabric: O(1) per node (label lookup, DRA fallback for clique discovery)
 
 ### Gang Scheduling Performance
 

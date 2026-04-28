@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -47,6 +48,9 @@ import (
 type GangPreemption struct {
 	handle    framework.Handle
 	podLister corelisters.PodLister
+	// lastPreemptionAttempts tracks the last preemption attempt per pod group
+	// to enforce MinimumPreemptionGap and prevent preemption storms.
+	lastPreemptionAttempts sync.Map // map[string]time.Time (key: namespace/podGroupName)
 }
 
 var _ framework.PostFilterPlugin = &GangPreemption{}
@@ -78,6 +82,17 @@ func (gp *GangPreemption) PostFilter(ctx context.Context, state framework.CycleS
 	}
 
 	klog.V(3).InfoS("GangPreemption: PostFilter called for gang pod", "namespace", pod.Namespace, "pod", pod.Name, "podGroup", podGroupName, "minAvailable", minAvailable)
+
+	// Enforce MinimumPreemptionGap to prevent preemption thrashing at scale
+	gangKey := fmt.Sprintf("%s/%s", pod.Namespace, podGroupName)
+	if lastAttempt, ok := gp.lastPreemptionAttempts.Load(gangKey); ok {
+		if elapsed := time.Since(lastAttempt.(time.Time)); elapsed < MinimumPreemptionGap {
+			klog.V(3).InfoS("GangPreemption: skipping preemption within cooldown",
+				"podGroup", podGroupName, "elapsed", elapsed, "gap", MinimumPreemptionGap)
+			return nil, framework.NewStatus(framework.Unschedulable, "preemption cooldown active")
+		}
+	}
+	gp.lastPreemptionAttempts.Store(gangKey, time.Now())
 
 	// Get all nodes
 	nodeInfos, err := gp.handle.SnapshotSharedLister().NodeInfos().List()
