@@ -23,7 +23,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	corelisters "k8s.io/client-go/listers/core/v1"
 	klog "k8s.io/klog/v2"
 	framework "k8s.io/kube-scheduler/framework"
 
@@ -35,8 +34,7 @@ import (
 // - Batch workloads: Bin packing (prefer fuller nodes for co-location)
 // - Service workloads: Spreading (prefer emptier nodes for HA)
 type WorkloadAware struct {
-	handle    framework.Handle
-	podLister corelisters.PodLister
+	handle framework.Handle
 }
 
 var _ framework.ScorePlugin = &WorkloadAware{}
@@ -106,7 +104,7 @@ func (w *WorkloadAware) Score(ctx context.Context, state framework.CycleState, p
 // falls back to local classification if ProfileClassifier is not enabled
 func (w *WorkloadAware) getWorkloadTypeFromProfile(state framework.CycleState, pod *v1.Pod) interface{} {
 	// Try to get profile from ProfileClassifier (preferred)
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		// Map ProfileClassifier workload types to our string representation
 		workloadTypeStr := string(profile.WorkloadType)
@@ -130,6 +128,7 @@ func (w *WorkloadAware) ScoreExtensions() framework.ScoreExtensions {
 
 // calculateNodeUtilization returns the node's resource utilization as a percentage (0-100).
 // Considers CPU, memory, and GPU resources with appropriate weights for GPU clusters.
+// Uses NodeInfo.GetRequested() which already aggregates pod resource requests.
 func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (float64, error) {
 	node := nodeInfo.Node()
 	if node == nil {
@@ -145,32 +144,13 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 		return 0, nil
 	}
 
-	// Safety check: podLister can be nil during initialization
-	if w.podLister == nil {
-		return 0, fmt.Errorf("podLister not initialized")
-	}
-
-	// Get all pods from the lister and filter by this node
-	allPods, err := w.podLister.List(nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	requestedCPU := float64(0)
-	requestedMemory := float64(0)
+	// Use NodeInfo's pre-aggregated requested resources
+	requested := nodeInfo.GetRequested()
+	requestedCPU := float64(requested.GetMilliCPU())
+	requestedMemory := float64(requested.GetMemory())
 	requestedGPU := float64(0)
-
-	// Only sum pods that are scheduled on THIS specific node
-	for _, pod := range allPods {
-		if pod.Spec.NodeName == node.Name {
-			for _, container := range pod.Spec.Containers {
-				requestedCPU += float64(container.Resources.Requests.Cpu().MilliValue())
-				requestedMemory += float64(container.Resources.Requests.Memory().Value())
-				if gpu, ok := container.Resources.Requests[v1.ResourceName(GPUResourceName)]; ok {
-					requestedGPU += float64(gpu.Value())
-				}
-			}
-		}
+	if v, ok := requested.GetScalarResources()[v1.ResourceName(GPUResourceName)]; ok {
+		requestedGPU = float64(v)
 	}
 
 	// Calculate utilization percentages
@@ -202,10 +182,7 @@ func (w *WorkloadAware) calculateNodeUtilization(nodeInfo framework.NodeInfo) (f
 
 // New initializes a new plugin and returns it.
 func New(_ context.Context, _ runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	podLister := handle.SharedInformerFactory().Core().V1().Pods().Lister()
-
 	return &WorkloadAware{
-		handle:    handle,
-		podLister: podLister,
+		handle: handle,
 	}, nil
 }

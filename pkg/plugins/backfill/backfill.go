@@ -269,7 +269,7 @@ func (b *BackfillScoring) ScoreExtensions() framework.ScoreExtensions {
 //   - Maintains backward compatibility with existing deployments
 func (b *BackfillScoring) getPreemptibilityFromProfile(state framework.CycleState, pod *v1.Pod) bool {
 	// Try ProfileClassifier first
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		klog.V(4).InfoS("BackfillScoring: pod preemptibility from ProfileClassifier", "namespace", pod.Namespace, "pod", pod.Name, "isPreemptible", profile.IsPreemptible)
 		return profile.IsPreemptible
@@ -330,7 +330,7 @@ func (b *BackfillScoring) isBackfillEligible(pod *v1.Pod) bool {
 
 // getTenantTierFromProfile gets pod's tenant tier from ProfileClassifier
 func (b *BackfillScoring) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.TenantTier)
 	}

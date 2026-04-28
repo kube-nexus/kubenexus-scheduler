@@ -356,7 +356,7 @@ func (gp *GangPreemption) selectNominatedNode(victims []*v1.Pod, nodeInfos []fra
 
 // getTenantTierFromProfile gets tenant tier using ProfileClassifier.
 func (gp *GangPreemption) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return strings.ToLower(string(profile.TenantTier))
 	}

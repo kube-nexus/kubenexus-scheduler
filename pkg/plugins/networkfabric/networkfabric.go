@@ -555,7 +555,7 @@ func calculateLocalityScore(gangPods []*v1.Pod, candidateClique, candidateFabric
 //   - Falls back to local workload detection if ProfileClassifier unavailable
 func (nf *NetworkFabricScore) getWorkloadFabricBonus(state framework.CycleState, pod *v1.Pod, fabricType FabricType) int {
 	// Try ProfileClassifier first
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	var workloadTypeStr string
 	if err == nil && profile != nil {
 		workloadTypeStr = strings.ToLower(string(profile.WorkloadType))

@@ -227,7 +227,7 @@ func (cs *Coscheduling) PreFilter(ctx context.Context, state framework.CycleStat
 	klog.InfoS("PreFilter called", "pod", klog.KObj(p), "labels", p.Labels)
 
 	// Check ProfileClassifier first for gang membership
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	isGang := false
 	if err == nil && profile != nil {
 		isGang = profile.IsGang

@@ -211,7 +211,7 @@ func (v *VRAMScheduler) Score(ctx context.Context, state framework.CycleState, p
 
 	// Determine workload type for metrics
 	workloadType := "unknown"
-	if profile, err := profileclassifier.GetProfile(&state); err == nil && profile != nil {
+	if profile, err := profileclassifier.GetProfile(state); err == nil && profile != nil {
 		workloadType = string(profile.WorkloadType)
 	}
 
@@ -611,7 +611,7 @@ func calculateUtilizationScore(utilizationRatio float64, tenantTier string) int6
 //   - Returns "gold", "silver", or "bronze"
 //   - Defaults to "bronze" if ProfileClassifier unavailable (most permissive)
 func (v *VRAMScheduler) getTenantTierFromProfile(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return strings.ToLower(string(profile.TenantTier))
 	}

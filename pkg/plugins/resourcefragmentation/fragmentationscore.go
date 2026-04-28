@@ -216,7 +216,7 @@ func (rf *ResourceFragmentationScore) Score(ctx context.Context, state framework
 
 // getPodTenantTier gets the pod's tenant tier from ProfileClassifier or defaults to unknown
 func (rf *ResourceFragmentationScore) getPodTenantTier(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.TenantTier)
 	}
@@ -367,7 +367,7 @@ func getGPURequest(pod *v1.Pod) int {
 
 // getPodWorkloadType gets the workload type from ProfileClassifier
 func (rf *ResourceFragmentationScore) getPodWorkloadType(state framework.CycleState, pod *v1.Pod) string {
-	profile, err := profileclassifier.GetProfile(&state)
+	profile, err := profileclassifier.GetProfile(state)
 	if err == nil && profile != nil {
 		return string(profile.WorkloadType)
 	}
