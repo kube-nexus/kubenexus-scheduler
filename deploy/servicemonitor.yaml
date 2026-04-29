@@ -1,0 +1,17 @@
+# Optional: Requires Prometheus Operator (monitoring.coreos.com CRDs)
+# Install separately: kubectl apply -f deploy/servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubenexus-scheduler
+  namespace: kubenexus-system
+  labels:
+    app: kubenexus-scheduler
+spec:
+  selector:
+    matchLabels:
+      app: kubenexus-scheduler
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
