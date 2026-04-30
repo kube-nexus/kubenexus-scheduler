@@ -236,19 +236,3 @@ spec:
   selector:
     matchLabels:
       app: kubenexus-scheduler
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: kubenexus-scheduler
-  namespace: kubenexus-system
-  labels:
-    app: kubenexus-scheduler
-spec:
-  selector:
-    matchLabels:
-      app: kubenexus-scheduler
-  endpoints:
-  - port: metrics
-    interval: 30s
-    path: /metrics

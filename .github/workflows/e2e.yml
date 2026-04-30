@@ -39,15 +39,33 @@ jobs:
         sudo mv kubectl /usr/local/bin/
         kubectl version --client
     
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: 'latest'
+    
     - name: Download dependencies
       run: go mod download
     
-    - name: Build scheduler binary
-      run: make build
+    - name: Set up E2E infrastructure
+      run: ./hack/e2e-setup.sh
+      env:
+        CLUSTER_NAME: kubenexus-e2e
     
     - name: Run E2E tests
       run: make test-e2e
-      timeout-minutes: 30
+      timeout-minutes: 15
+    
+    - name: Collect scheduler logs
+      if: always()
+      run: |
+        kubectl logs -n kubenexus-system -l app=kubenexus-scheduler --tail=200 > e2e-scheduler.log 2>&1 || true
+        kubectl get pods -A -o wide > e2e-pods.log 2>&1 || true
+        kubectl get nodes -o wide > e2e-nodes.log 2>&1 || true
+    
+    - name: Teardown cluster
+      if: always()
+      run: ./hack/e2e-setup.sh teardown
     
     - name: Upload test results
       if: always()
@@ -55,6 +73,5 @@ jobs:
       with:
         name: e2e-test-results
         path: |
-          **/e2e-test-*.log
-          **/e2e-test-*.xml
+          e2e-*.log
         retention-days: 7
